@@ -84,3 +84,17 @@ Grounded in `prd.md` sections 7, 10, 11, 16, 17, 18, 20, and milestone M2.
   - Add an exclusion and confirm matching cached rows are purged.
   - Run purge and compact and confirm disk usage is reclaimed.
   - Validation: manual QA confirms the M2 cache-control acceptance criteria from `prd.md`.
+
+## Sprint 5 QA Notes
+
+### Task 5.13: Real Gmail M2 acceptance
+- Date: 2026-04-24T09:21:18-04:00
+- Status: blocked; Task 5.13 is not marked complete.
+- Blocker: the workspace does not contain a real Gmail test account or Google Desktop OAuth client credentials, and completing the full M2 acceptance path requires human browser authorization.
+- Automated validation completed for Sprint 5 implementation tasks: `make test`, `make vet`, targeted cache/sync/UI/command tests, and cache dashboard render benchmark coverage.
+- Prepared manual acceptance flow once a test account is authorized:
+  1. Launch `gandt`, authorize the test account, and backfill Inbox.
+  2. Use `:cache-policy` to change an Inbox or test-label policy, save it, and confirm the next sync uses the changed effective policy.
+  3. Use `:cache-exclude <sender|domain|label> <value>`, confirm the preview, and verify matching cached rows are purged.
+  4. Use `:cache-purge --label <id> --older-than <days> --dry-run`, rerun without `--dry-run`, confirm deletion, then run `:cache-compact`.
+  5. Confirm `cache.db` disk usage is reclaimed, OAuth credentials remain available, and the M2 PRD acceptance path can triage a real inbox down to zero.
