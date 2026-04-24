@@ -505,6 +505,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Stopped {
 			return m, nil
 		}
+		m.updateSyncStatus(msg.AccountID, msg.Summary, msg.Err)
 		m.applyStatusOrError(msg.Summary, msg.Err, m.mailbox.Account)
 		return m, m.runSyncCycle(m.consumeSyncActivity())
 	case ErrorMsg:
@@ -967,11 +968,33 @@ func (m *Model) updateAccountStateSnapshot(account string, mailbox Mailbox) {
 	}
 }
 
+func (m *Model) updateSyncStatus(accountID string, summary string, err error) {
+	status := summary
+	if err != nil {
+		status = "sync failed"
+	}
+	if status == "" {
+		status = "synced"
+	}
+	for i := range m.accounts {
+		if accountID == "" || sameAccountRef(m.accounts[i].Account, accountID) {
+			m.accounts[i].SyncStatus = status
+		}
+	}
+}
+
 func (m Model) activeStyles() Styles {
 	if m.activeAccount >= 0 && m.activeAccount < len(m.accounts) {
 		return m.styles.WithAccent(m.accounts[m.activeAccount].Color)
 	}
 	return m.styles
+}
+
+func (m Model) activeSyncStatus() string {
+	if m.activeAccount >= 0 && m.activeAccount < len(m.accounts) {
+		return m.accounts[m.activeAccount].SyncStatus
+	}
+	return ""
 }
 
 func (m *Model) removeAccountState(account string) {

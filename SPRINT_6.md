@@ -49,7 +49,7 @@ Grounded in `prd.md` sections 1, 3, 4, 7, 8, 10, 12, 13.1, 13.6, 16, 20, and mil
   - Keep undo scoped to the account and message/thread that created it.
   - Validation: `go test ./internal/ui ./internal/gmail` covers action dispatch before and after account switching.
 
-- [ ] **Task 6.8**: Run independent sync loops per account
+- [x] **Task 6.8**: Run independent sync loops per account
   - Sync each configured account with separate history ID, rate-limit state, and policy lookup.
   - Avoid one account's network error blocking another account.
   - Render per-account sync status in the switcher and active-account status bar.

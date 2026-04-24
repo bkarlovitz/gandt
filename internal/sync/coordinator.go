@@ -95,8 +95,9 @@ func (c Coordinator) Next(ctx context.Context, active bool) CoordinatorUpdate {
 		summary = "sync complete"
 	}
 	return CoordinatorUpdate{
-		Summary:  summary,
-		Fallback: result.Fallback,
+		AccountID: result.AccountID,
+		Summary:   summary,
+		Fallback:  result.Fallback,
 	}
 }
 

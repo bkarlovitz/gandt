@@ -205,18 +205,21 @@ func buildSyncCoordinator(paths config.Paths, cfg config.Config) ui.SyncCoordina
 			return gandtsync.AccountSyncResult{Status: "sync skipped: no accounts configured"}, nil
 		}
 
-		account := accounts[0]
-		now := time.Now().UTC()
-		if retentionSchedule.ShouldRun(account.ID, now) {
-			if _, err := gandtsync.NewRetentionSweeper(db, cfg).Sweep(ctx, account, now); err != nil {
+		return gandtsync.RunAccountsIndependently(ctx, accounts, gandtsync.AccountRunnerFunc(func(ctx context.Context, account cache.Account) (gandtsync.AccountSyncResult, error) {
+			now := time.Now().UTC()
+			if retentionSchedule.ShouldRun(account.ID, now) {
+				if _, err := gandtsync.NewRetentionSweeper(db, cfg).Sweep(ctx, account, now); err != nil {
+					return gandtsync.AccountSyncResult{}, err
+				}
+			}
+			gmailClient, err := gmailClientForAccount(ctx, account.ID)
+			if err != nil {
 				return gandtsync.AccountSyncResult{}, err
 			}
-		}
-		gmailClient, err := gmailClientForAccount(ctx, account.ID)
-		if err != nil {
-			return gandtsync.AccountSyncResult{}, err
-		}
-		return gandtsync.NewDeltaSynchronizer(db, cfg, gmailClient, gandtsync.WithLogger(charmSyncLogger{})).Sync(ctx, account)
+			result, err := gandtsync.NewDeltaSynchronizer(db, cfg, gmailClient, gandtsync.WithLogger(charmSyncLogger{})).Sync(ctx, account)
+			result.AccountID = account.ID
+			return result, err
+		}))
 	}))
 }
 

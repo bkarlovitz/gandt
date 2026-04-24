@@ -283,6 +283,9 @@ func (m Model) mailboxHeader() string {
 		header = "G&T | no accounts configured"
 	case m.mailbox.Real:
 		header = fmt.Sprintf("G&T | %s | Gmail cache", m.mailbox.Account)
+		if status := m.activeSyncStatus(); status != "" {
+			header += " | " + status
+		}
 	default:
 		header = fmt.Sprintf("G&T | %s | fake inbox | no network", m.mailbox.Account)
 	}

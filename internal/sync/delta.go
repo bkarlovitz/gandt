@@ -33,11 +33,12 @@ type DeltaSyncResult struct {
 }
 
 type AccountSyncResult struct {
-	Delta    DeltaSyncResult
-	Backfill BackfillResult
-	Bodies   BodyFetchResult
-	Fallback bool
-	Status   string
+	AccountID string
+	Delta     DeltaSyncResult
+	Backfill  BackfillResult
+	Bodies    BodyFetchResult
+	Fallback  bool
+	Status    string
 }
 
 func NewDeltaSynchronizer(db *sqlx.DB, cfg config.Config, client gmail.MessageReader, opts ...DeltaOption) DeltaSynchronizer {

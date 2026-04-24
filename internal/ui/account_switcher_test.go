@@ -104,6 +104,24 @@ func TestActiveAccountWithoutCachedDataShowsEmptyState(t *testing.T) {
 	}
 }
 
+func TestSyncUpdateRendersPerAccountStatus(t *testing.T) {
+	model := switcherTestModel()
+	updated, cmd := model.Update(SyncUpdateMsg{Summary: "sync-all complete: 2 synced"})
+	got := updated.(Model)
+	if cmd != nil {
+		t.Fatalf("sync update returned command %T without coordinator", cmd)
+	}
+	if status := got.accounts[0].SyncStatus; status != "sync-all complete: 2 synced" {
+		t.Fatalf("first status = %q", status)
+	}
+	if status := got.accounts[1].SyncStatus; status != "sync-all complete: 2 synced" {
+		t.Fatalf("second status = %q", status)
+	}
+	if !strings.Contains(got.View(), "sync-all complete: 2 synced") {
+		t.Fatalf("active status not rendered:\n%s", got.View())
+	}
+}
+
 func switcherTestModel() Model {
 	return New(config.Default(), WithAccounts([]AccountState{
 		{
