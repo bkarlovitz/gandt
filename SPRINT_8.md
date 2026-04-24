@@ -13,7 +13,7 @@ Grounded in `prd.md` sections 8, 9, 13.3, 13.5, 13.7, 13.8, 14, 15, 17, 19, 20, 
   - Keep active account and `sendAs` alias explicit.
   - Validation: `go test ./internal/compose/...` covers validation, reply context, forward context, and attachment metadata.
 
-- [ ] **Task 8.2**: Fetch send-as identities
+- [x] **Task 8.2**: Fetch send-as identities
   - Add Gmail wrapper for `users.settings.sendAs.list`.
   - Cache or memoize aliases per account for compose header dropdowns.
   - Fall back to the account email if alias fetch fails.
