@@ -25,7 +25,7 @@ Grounded in `prd.md` sections 7, 9, 13.4, 15, 18, 20, and milestone M4.
   - Report unsupported operators clearly without claiming full Gmail syntax offline.
   - Validation: `go test ./internal/cache/...` covers parser output, parameterization, unsupported operators, and injection-like input.
 
-- [ ] **Task 7.4**: Implement FTS result queries
+- [x] **Task 7.4**: Implement FTS result queries
   - Query `messages_fts` and join back to message/thread metadata for display.
   - Scope every query by active account.
   - Target under 100ms for typical cached searches.

@@ -335,6 +335,98 @@ func TestMessageRepositoryScopesOverlappingGmailIDsByAccount(t *testing.T) {
 	}
 }
 
+func TestMessageRepositorySearchSummariesScopesByAccount(t *testing.T) {
+	ctx := context.Background()
+	db := migratedTestDB(t)
+	first := seedMessageRepoAccount(t, db)
+	secondAccount, err := NewAccountRepository(db).Create(ctx, CreateAccountParams{Email: "other@example.com"})
+	if err != nil {
+		t.Fatalf("create second account: %v", err)
+	}
+	second := secondAccount.ID
+
+	body := "budget review plan"
+	when := time.Date(2026, 4, 24, 14, 0, 0, 0, time.UTC)
+	for _, fixture := range []struct {
+		account string
+		id      string
+		from    string
+		subject string
+	}{
+		{first, "message-1", "ada@example.com", "Budget review"},
+		{second, "message-1", "other@example.com", "Budget review"},
+	} {
+		threadID := fixture.account + "-thread"
+		if err := NewThreadRepository(db).Upsert(ctx, Thread{AccountID: fixture.account, ID: threadID, LastMessageDate: &when}); err != nil {
+			t.Fatalf("upsert thread: %v", err)
+		}
+		if err := NewMessageRepository(db).Upsert(ctx, Message{
+			AccountID:    fixture.account,
+			ID:           fixture.id,
+			ThreadID:     threadID,
+			FromAddr:     fixture.from,
+			ToAddrs:      []string{"team@example.com"},
+			Subject:      fixture.subject,
+			Snippet:      "fixture snippet",
+			BodyPlain:    &body,
+			InternalDate: &when,
+			CachedAt:     &when,
+		}); err != nil {
+			t.Fatalf("upsert message: %v", err)
+		}
+	}
+	if err := NewLabelRepository(db).Upsert(ctx, Label{AccountID: first, ID: "UNREAD", Name: "Unread", Type: "system"}); err != nil {
+		t.Fatalf("upsert unread label: %v", err)
+	}
+	if err := NewMessageLabelRepository(db).Upsert(ctx, MessageLabel{AccountID: first, MessageID: "message-1", LabelID: "UNREAD"}); err != nil {
+		t.Fatalf("upsert unread: %v", err)
+	}
+	if err := NewAttachmentRepository(db).Upsert(ctx, Attachment{AccountID: first, MessageID: "message-1", PartID: "1", Filename: "budget.pdf"}); err != nil {
+		t.Fatalf("upsert attachment: %v", err)
+	}
+
+	results, err := NewMessageRepository(db).SearchSummaries(ctx, first, `from:ada@example.com subject:Budget plan`, 10)
+	if err != nil {
+		t.Fatalf("search summaries: %v", err)
+	}
+	if len(results) != 1 || results[0].AccountID != first || results[0].FromAddr != "ada@example.com" {
+		t.Fatalf("results = %#v, want first account Ada message", results)
+	}
+	if !results[0].Unread || results[0].AttachmentCount != 1 || !results[0].BodyCached {
+		t.Fatalf("result metadata = %#v, want unread attachment cached metadata", results[0])
+	}
+}
+
+func TestMessageRepositorySearchSummariesSupportsToAndLimit(t *testing.T) {
+	ctx := context.Background()
+	db := migratedTestDB(t)
+	accountID := seedMessageRepoAccount(t, db)
+	when := time.Date(2026, 4, 24, 14, 0, 0, 0, time.UTC)
+	for i := 0; i < 3; i++ {
+		id := fmt.Sprintf("message-%d", i)
+		if err := NewThreadRepository(db).Upsert(ctx, Thread{AccountID: accountID, ID: "thread-" + id, LastMessageDate: &when}); err != nil {
+			t.Fatalf("upsert thread: %v", err)
+		}
+		if err := NewMessageRepository(db).Upsert(ctx, Message{
+			AccountID:    accountID,
+			ID:           id,
+			ThreadID:     "thread-" + id,
+			ToAddrs:      []string{"team@example.com"},
+			Subject:      "Planning",
+			InternalDate: &when,
+		}); err != nil {
+			t.Fatalf("upsert message: %v", err)
+		}
+	}
+	results, err := NewMessageRepository(db).SearchSummaries(ctx, accountID, "to:team@example.com", 2)
+	if err != nil {
+		t.Fatalf("search summaries: %v", err)
+	}
+	if len(results) != 2 {
+		t.Fatalf("results = %d, want limit 2", len(results))
+	}
+}
+
 func BenchmarkMessageRepositoryListSummariesByLabel5000(b *testing.B) {
 	ctx := context.Background()
 	db, err := OpenPath(ctx, b.TempDir()+"/cache.db")
@@ -355,6 +447,30 @@ func BenchmarkMessageRepositoryListSummariesByLabel5000(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		if _, err := repo.ListSummariesByLabel(ctx, accountID, "INBOX", 5000); err != nil {
 			b.Fatalf("list summaries: %v", err)
+		}
+	}
+}
+
+func BenchmarkMessageRepositorySearchSummaries5000(b *testing.B) {
+	ctx := context.Background()
+	db, err := OpenPath(ctx, b.TempDir()+"/cache.db")
+	if err != nil {
+		b.Fatalf("open cache: %v", err)
+	}
+	defer db.Close()
+	if err := Migrate(ctx, db); err != nil {
+		b.Fatalf("migrate cache: %v", err)
+	}
+	accountID := seedSummaryBenchmarkAccount(b, db)
+	if err := seedSummaryBenchmarkRows(ctx, db, accountID, 5000); err != nil {
+		b.Fatalf("seed benchmark rows: %v", err)
+	}
+
+	repo := NewMessageRepository(db)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if _, err := repo.SearchSummaries(ctx, accountID, "subject", 100); err != nil {
+			b.Fatalf("search summaries: %v", err)
 		}
 	}
 }

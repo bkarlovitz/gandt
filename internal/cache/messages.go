@@ -323,6 +323,48 @@ ORDER BY m.internal_date DESC, m.date DESC, m.id DESC
 	return summaries, nil
 }
 
+func (r MessageRepository) SearchSummaries(ctx context.Context, accountID string, query string, limit int) ([]MessageSummary, error) {
+	compiled, err := CompileOfflineSearch(query)
+	if err != nil {
+		return nil, err
+	}
+	sql := `
+SELECT m.account_id, m.id, m.thread_id, m.from_addr, m.subject, m.snippet, m.date, m.internal_date,
+       (
+         SELECT COUNT(*) FROM messages tm
+         WHERE tm.account_id = m.account_id AND tm.thread_id = m.thread_id
+       ) AS thread_count,
+       EXISTS (
+         SELECT 1 FROM message_labels unread
+         WHERE unread.account_id = m.account_id AND unread.message_id = m.id AND unread.label_id = 'UNREAD'
+       ) AS unread,
+       (
+         SELECT COUNT(*) FROM attachments a
+         WHERE a.account_id = m.account_id AND a.message_id = m.id
+       ) AS attachment_count,
+       CASE WHEN m.body_plain IS NOT NULL OR m.body_html IS NOT NULL OR m.cached_at IS NOT NULL THEN 1 ELSE 0 END AS body_cached
+FROM messages_fts f
+JOIN messages m ON m.account_id = f.account_id AND m.id = f.message_id
+WHERE f.account_id = ? AND messages_fts MATCH ?
+ORDER BY bm25(messages_fts), m.internal_date DESC, m.date DESC, m.id DESC
+`
+	args := []any{accountID}
+	args = append(args, compiled.Args...)
+	if limit > 0 {
+		sql += "LIMIT ?"
+		args = append(args, limit)
+	}
+	rows := []messageSummaryRow{}
+	if err := r.db.SelectContext(ctx, &rows, sql, args...); err != nil {
+		return nil, fmt.Errorf("search message summaries: %w", err)
+	}
+	summaries := make([]MessageSummary, 0, len(rows))
+	for _, row := range rows {
+		summaries = append(summaries, row.summary())
+	}
+	return summaries, nil
+}
+
 type MessageLabelRepository struct {
 	db *sqlx.DB
 }
