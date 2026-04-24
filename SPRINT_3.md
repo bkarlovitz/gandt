@@ -78,3 +78,26 @@ Grounded in `prd.md` sections 7, 9, 10, 12, 13.2, 13.3, 14, 17, 18, 20, and mile
   - Run `sqlite3 cache.db` to verify expected tables, FTS rows, and reserved annotations table.
   - Start the app offline and verify cached messages still render.
   - Validation: manual QA confirms M1 acceptance from `prd.md` and records any slow operations over target.
+
+## M1 QA Notes
+
+- Date: 2026-04-23
+- Status: blocked; Task 3.12 is not marked complete.
+- Blocker: the workspace does not contain a real test Gmail account or Google Desktop OAuth client credentials, and completing the acceptance path requires human account authorization in a browser.
+- Automated validation completed for Sprint 3 implementation tasks: `make test`, `make vet`, and the 5,000-row mailbox summary benchmark.
+- Prepared manual acceptance commands once a test account is authorized and a cache is backfilled:
+
+```sh
+sqlite3 "$XDG_DATA_HOME/gandt/cache.db" '
+.tables
+SELECT COUNT(*) AS accounts_count FROM accounts;
+SELECT COUNT(*) AS labels_count FROM labels;
+SELECT COUNT(*) AS threads_count FROM threads;
+SELECT COUNT(*) AS messages_count FROM messages;
+SELECT COUNT(*) AS message_labels_count FROM message_labels;
+SELECT COUNT(*) AS messages_fts_count FROM messages_fts;
+SELECT name FROM sqlite_master WHERE name IN ("messages_fts", "message_annotations") ORDER BY name;
+'
+```
+
+Expected after one successful real-account Sprint 3 acceptance run: at least one account, labels for the authorized mailbox, nonzero `threads`, `messages`, `message_labels`, and `messages_fts` rows after backfill, both `message_annotations` and `messages_fts` listed, Inbox browsing from cached summaries, cached thread reading while offline, and no slow operations over the PRD targets recorded during manual QA.
