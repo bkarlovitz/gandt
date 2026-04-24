@@ -18,6 +18,11 @@ type addAccountDoneMsg struct {
 	Err    error
 }
 
+type removeAccountDoneMsg struct {
+	Result AccountRemoveResult
+	Err    error
+}
+
 type replaceCredentialsDoneMsg struct {
 	Err error
 }

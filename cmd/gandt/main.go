@@ -59,6 +59,7 @@ func main() {
 
 	uiOptions := []ui.Option{
 		ui.WithAccountAdder(buildAccountAdder(paths, cfg)),
+		ui.WithAccountRemover(buildAccountRemover(paths)),
 		ui.WithCredentialReplacer(buildCredentialReplacer()),
 		ui.WithThreadLoader(buildThreadLoader(paths, cfg)),
 		ui.WithManualRefresher(buildManualRefresher(paths, cfg)),
@@ -138,6 +139,30 @@ func buildAccountAdder(paths config.Paths, cfg config.Config) ui.AccountAdder {
 			Account:         account.Email,
 			Labels:          uiLabels(ctx, db, cfg, account, labels),
 			MessagesByLabel: messagesByLabel,
+		}, nil
+	})
+}
+
+func buildAccountRemover(paths config.Paths) ui.AccountRemover {
+	return ui.AccountRemoverFunc(func(accountRef string) (ui.AccountRemoveResult, error) {
+		ctx := context.Background()
+		db, err := cache.Open(ctx, paths)
+		if err != nil {
+			return ui.AccountRemoveResult{}, err
+		}
+		defer db.Close()
+		if err := cache.Migrate(ctx, db); err != nil {
+			return ui.AccountRemoveResult{}, err
+		}
+
+		remover := auth.NewAccountRemover(db, auth.NewSecretStore(auth.SystemKeyring{}), paths.AccountsFile, paths.AttachmentDir, auth.GoogleTokenRevoker{})
+		result, err := remover.Remove(ctx, accountRef)
+		if err != nil {
+			return ui.AccountRemoveResult{}, err
+		}
+		return ui.AccountRemoveResult{
+			Account:     result.Account.Email,
+			RevokeError: result.RevokeFailed,
 		}, nil
 	})
 }

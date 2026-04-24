@@ -58,6 +58,9 @@ type Model struct {
 	offline               bool
 	addingAccount         bool
 	addAccount            AccountAdder
+	removingAccount       bool
+	removeAccount         AccountRemover
+	pendingRemoveAccount  string
 	replacingCreds        bool
 	replaceCreds          CredentialReplacer
 	threadLoader          ThreadLoader
@@ -116,6 +119,14 @@ func WithAccountAdder(adder AccountAdder) Option {
 	return func(m *Model) {
 		if adder != nil {
 			m.addAccount = adder
+		}
+	}
+}
+
+func WithAccountRemover(remover AccountRemover) Option {
+	return func(m *Model) {
+		if remover != nil {
+			m.removeAccount = remover
 		}
 	}
 }
@@ -257,6 +268,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.statusMessage = fmt.Sprintf("added account %s", msg.Result.Account)
 		m.mailbox = RealAccountMailbox(msg.Result.Account, msg.Result.Labels, msg.Result.MessagesByLabel)
 		m.selectedLabel = clamp(m.selectedLabel, 0, len(m.mailbox.Labels)-1)
+	case removeAccountDoneMsg:
+		m.removingAccount = false
+		m.pendingRemoveAccount = ""
+		if msg.Err != nil {
+			m.statusMessage = "remove account failed: " + msg.Err.Error()
+			return m, nil
+		}
+		if msg.Result.RevokeError {
+			m.statusMessage = fmt.Sprintf("removed account %s; token revoke failed", msg.Result.Account)
+		} else {
+			m.statusMessage = fmt.Sprintf("removed account %s", msg.Result.Account)
+		}
+		if strings.EqualFold(m.mailbox.Account, msg.Result.Account) {
+			m.mailbox = NoAccountMailbox()
+			m.selectedLabel = 0
+			m.selectedMessage = 0
+			m.readerOpen = false
+		}
 	case replaceCredentialsDoneMsg:
 		m.replacingCreds = false
 		if msg.Err != nil {
@@ -510,6 +539,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	if m.mode == ModeNormal && m.pendingCacheWipeStep > 0 {
 		return m.handleCacheWipeConfirmation(key)
+	}
+	if m.mode == ModeNormal && m.pendingRemoveAccount != "" {
+		return m.handleRemoveAccountConfirmation(key)
 	}
 
 	switch m.mode {
@@ -810,6 +842,26 @@ func (m Model) handleCacheWipeConfirmation(key string) (tea.Model, tea.Cmd) {
 	}
 }
 
+func (m Model) handleRemoveAccountConfirmation(key string) (tea.Model, tea.Cmd) {
+	switch key {
+	case "y", "Y":
+		account := m.pendingRemoveAccount
+		m.removingAccount = true
+		m.statusMessage = "removing account..."
+		m.toastMessage = m.statusMessage
+		return m, m.runRemoveAccount(account)
+	case "n", "N", "esc":
+		m.pendingRemoveAccount = ""
+		m.statusMessage = "remove account canceled"
+		m.toastMessage = m.statusMessage
+		return m, nil
+	default:
+		m.statusMessage = "confirm account removal with y or n"
+		m.toastMessage = m.statusMessage
+		return m, nil
+	}
+}
+
 func (m Model) submitCommand() (tea.Model, tea.Cmd) {
 	command := strings.TrimSpace(strings.TrimPrefix(m.commandInput, ":"))
 	m.mode = ModeNormal
@@ -822,7 +874,7 @@ func (m Model) submitCommand() (tea.Model, tea.Cmd) {
 
 	switch commandName {
 	case "add-account":
-		if m.addingAccount || m.replacingCreds {
+		if m.addingAccount || m.removingAccount || m.replacingCreds {
 			m.statusMessage = "account operation already running"
 			return m, nil
 		}
@@ -833,8 +885,29 @@ func (m Model) submitCommand() (tea.Model, tea.Cmd) {
 		m.addingAccount = true
 		m.statusMessage = "adding account..."
 		return m, m.runAddAccount()
+	case "remove-account":
+		if m.addingAccount || m.removingAccount || m.replacingCreds {
+			m.statusMessage = "account operation already running"
+			return m, nil
+		}
+		if m.removeAccount == nil {
+			m.statusMessage = "remove account unavailable"
+			return m, nil
+		}
+		account := m.mailbox.Account
+		if len(fields) > 1 {
+			account = fields[1]
+		}
+		if account == "" || (m.mailbox.NoAccounts && len(fields) <= 1) {
+			m.statusMessage = "remove account unavailable: no account"
+			return m, nil
+		}
+		m.pendingRemoveAccount = account
+		m.statusMessage = fmt.Sprintf("remove account %s? y confirm / n cancel", account)
+		m.toastMessage = m.statusMessage
+		return m, nil
 	case "replace-credentials":
-		if m.addingAccount || m.replacingCreds {
+		if m.addingAccount || m.removingAccount || m.replacingCreds {
 			m.statusMessage = "account operation already running"
 			return m, nil
 		}
@@ -1097,6 +1170,13 @@ func (m Model) runAddAccount() tea.Cmd {
 	return func() tea.Msg {
 		result, err := m.addAccount.AddAccount()
 		return addAccountDoneMsg{Result: result, Err: err}
+	}
+}
+
+func (m Model) runRemoveAccount(account string) tea.Cmd {
+	return func() tea.Msg {
+		result, err := m.removeAccount.RemoveAccount(account)
+		return removeAccountDoneMsg{Result: result, Err: err}
 	}
 }
 

@@ -19,7 +19,7 @@ Grounded in `prd.md` sections 1, 3, 4, 7, 8, 10, 12, 13.1, 13.6, 16, 20, and mil
   - Start first-time backfill for the new account only.
   - Validation: `go test ./internal/auth ./internal/sync ./internal/ui` covers adding multiple distinct accounts and duplicate account rejection.
 
-- [ ] **Task 6.3**: Implement account removal
+- [x] **Task 6.3**: Implement account removal
   - Add `:remove-account` with confirmation.
   - Best-effort revoke the token, delete keyring token, delete account rows, and remove attachments for that account.
   - Leave other accounts and shared client credentials intact.

@@ -18,6 +18,21 @@ func (fn AccountAdderFunc) AddAccount() (AccountAddResult, error) {
 	return fn()
 }
 
+type AccountRemoveResult struct {
+	Account     string
+	RevokeError bool
+}
+
+type AccountRemover interface {
+	RemoveAccount(account string) (AccountRemoveResult, error)
+}
+
+type AccountRemoverFunc func(account string) (AccountRemoveResult, error)
+
+func (fn AccountRemoverFunc) RemoveAccount(account string) (AccountRemoveResult, error) {
+	return fn(account)
+}
+
 type CredentialReplacer interface {
 	ReplaceCredentials() error
 }
