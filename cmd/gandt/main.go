@@ -727,12 +727,9 @@ func buildTriageActor(paths config.Paths) ui.TriageActor {
 		if len(accounts) == 0 {
 			return ui.TriageActionResult{}, fmt.Errorf("no accounts configured")
 		}
-		account := accounts[0]
-		for _, candidate := range accounts {
-			if candidate.Email == request.Account {
-				account = candidate
-				break
-			}
+		account, err := resolveRefreshAccount(accounts, request.Account)
+		if err != nil {
+			return ui.TriageActionResult{}, err
 		}
 		actionStarted := time.Now()
 		charmlog.Info("action_attempt",
