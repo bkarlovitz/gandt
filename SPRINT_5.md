@@ -31,7 +31,7 @@ Grounded in `prd.md` sections 7, 10, 11, 16, 17, 18, 20, and milestone M2.
   - Trigger a sync decision refresh after saving policies.
   - Validation: `go test ./internal/ui/...` simulates edit/save/cancel/reset and verifies persisted rows.
 
-- [ ] **Task 5.5**: Apply config-file cache policies
+- [x] **Task 5.5**: Apply config-file cache policies
   - Parse `[cache.defaults]`, `[[cache.policies]]`, and `[[cache.exclusions]]` from config.
   - Implement documented precedence: explicit DB row, config policy, account default, global default.
   - Reload policy safely when config is changed between launches.

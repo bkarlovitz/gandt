@@ -137,6 +137,62 @@ depth = "metadata"
 	assertEqual(t, cfg.Cache.Defaults.TotalBudgetMB, 2000)
 }
 
+func TestLoadReloadsCachePolicyChanges(t *testing.T) {
+	path := writeConfig(t, `
+[cache.defaults]
+depth = "metadata"
+retention_days = 30
+attachment_rule = "none"
+
+[[cache.policies]]
+account = "me@example.com"
+label = "Receipts"
+depth = "body"
+retention_days = 90
+attachment_rule = "none"
+
+[[cache.exclusions]]
+match_type = "domain"
+match_value = "private.example"
+`)
+
+	first, err := Load(Paths{ConfigFile: path})
+	if err != nil {
+		t.Fatalf("load first config: %v", err)
+	}
+	assertEqual(t, string(first.Cache.Defaults.Depth), "metadata")
+	assertEqual(t, string(first.Cache.Policies[0].Depth), "body")
+	assertEqual(t, first.Cache.Policies[0].RetentionDays, 90)
+	assertEqual(t, first.Cache.Exclusions[0].MatchValue, "private.example")
+
+	if err := os.WriteFile(path, []byte(strings.TrimSpace(`
+[cache.defaults]
+depth = "full"
+retention_days = 365
+attachment_rule = "under_size"
+attachment_max_mb = 5
+
+[[cache.policies]]
+account = "me@example.com"
+label = "Receipts"
+depth = "full"
+retention_days = 1825
+attachment_rule = "all"
+`)+"\n"), 0o600); err != nil {
+		t.Fatalf("rewrite config: %v", err)
+	}
+
+	second, err := Load(Paths{ConfigFile: path})
+	if err != nil {
+		t.Fatalf("load second config: %v", err)
+	}
+	assertEqual(t, string(second.Cache.Defaults.Depth), "full")
+	assertEqual(t, second.Cache.Defaults.AttachmentMaxMB, 5)
+	assertEqual(t, string(second.Cache.Policies[0].Depth), "full")
+	assertEqual(t, second.Cache.Policies[0].RetentionDays, 1825)
+	assertEqual(t, len(second.Cache.Exclusions), 0)
+}
+
 func TestInitFileLoggerCreatesLogFile(t *testing.T) {
 	root := t.TempDir()
 	paths := Paths{

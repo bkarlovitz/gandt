@@ -63,11 +63,11 @@ func main() {
 		ui.WithThreadLoader(buildThreadLoader(paths, cfg)),
 		ui.WithManualRefresher(buildManualRefresher(paths, cfg)),
 		ui.WithTriageActor(buildTriageActor(paths)),
-		ui.WithCacheDashboardLoader(buildCacheDashboardLoader(paths)),
-		ui.WithCachePolicyStore(buildCachePolicyStore(paths)),
+		ui.WithCacheDashboardLoader(buildCacheDashboardLoader(paths, cfg)),
+		ui.WithCachePolicyStore(buildCachePolicyStore(paths, cfg)),
 		ui.WithSyncCoordinator(buildSyncCoordinator(paths, cfg)),
 	}
-	if mailbox, ok := loadInitialMailbox(paths); ok {
+	if mailbox, ok := loadInitialMailbox(paths, cfg); ok {
 		uiOptions = append(uiOptions, ui.WithMailbox(mailbox))
 	}
 	program := tea.NewProgram(ui.New(cfg, uiOptions...), tea.WithAltScreen())
@@ -133,7 +133,7 @@ func buildAccountAdder(paths config.Paths, cfg config.Config) ui.AccountAdder {
 		}
 		return ui.AccountAddResult{
 			Account:         account.Email,
-			Labels:          uiLabels(cache.NewSyncPolicyRepository(db), account.ID, labels),
+			Labels:          uiLabels(ctx, db, cfg, account, labels),
 			MessagesByLabel: messagesByLabel,
 		}, nil
 	})
@@ -194,7 +194,7 @@ func buildManualRefresher(paths config.Paths, cfg config.Config) ui.ManualRefres
 	})
 }
 
-func buildCacheDashboardLoader(paths config.Paths) ui.CacheDashboardLoader {
+func buildCacheDashboardLoader(paths config.Paths, cfg config.Config) ui.CacheDashboardLoader {
 	return ui.CacheDashboardLoaderFunc(func() (ui.CacheDashboard, error) {
 		ctx := context.Background()
 		db, err := cache.Open(ctx, paths)
@@ -210,11 +210,11 @@ func buildCacheDashboardLoader(paths config.Paths) ui.CacheDashboardLoader {
 		if err != nil {
 			return ui.CacheDashboard{}, err
 		}
-		return uiCacheDashboard(ctx, db, stats), nil
+		return uiCacheDashboard(ctx, db, cfg, stats), nil
 	})
 }
 
-func uiCacheDashboard(ctx context.Context, db *sqlx.DB, stats cache.CacheStats) ui.CacheDashboard {
+func uiCacheDashboard(ctx context.Context, db *sqlx.DB, cfg config.Config, stats cache.CacheStats) ui.CacheDashboard {
 	dashboard := ui.CacheDashboard{
 		GeneratedAt:           stats.GeneratedAt,
 		SQLiteBytes:           stats.Total.SQLiteBytes,
@@ -242,11 +242,11 @@ func uiCacheDashboard(ctx context.Context, db *sqlx.DB, stats cache.CacheStats) 
 		})
 	}
 
-	policies := cache.NewSyncPolicyRepository(db)
+	evaluator := gandtsync.NewPolicyEvaluator(db, cfg)
 	for _, label := range stats.Labels {
 		depth := ""
-		if policy, err := policies.EffectiveForLabel(ctx, label.AccountID, label.LabelID); err == nil {
-			depth = policy.Depth
+		if policy, err := evaluator.EffectiveForLabel(ctx, label.AccountID, accountEmails[label.AccountID], label.LabelID); err == nil {
+			depth = string(policy.Depth)
 		}
 		dashboard.Labels = append(dashboard.Labels, ui.CacheDashboardLabel{
 			AccountEmail:    accountEmails[label.AccountID],
@@ -275,7 +275,7 @@ func uiCacheDashboard(ctx context.Context, db *sqlx.DB, stats cache.CacheStats) 
 	return dashboard
 }
 
-func buildCachePolicyStore(paths config.Paths) ui.CachePolicyStore {
+func buildCachePolicyStore(paths config.Paths, cfg config.Config) ui.CachePolicyStore {
 	return ui.CachePolicyStoreFunc{
 		LoadFn: func() (ui.CachePolicyTable, error) {
 			ctx := context.Background()
@@ -287,7 +287,7 @@ func buildCachePolicyStore(paths config.Paths) ui.CachePolicyStore {
 			if err := cache.Migrate(ctx, db); err != nil {
 				return ui.CachePolicyTable{}, err
 			}
-			return loadCachePolicyTable(ctx, db)
+			return loadCachePolicyTable(ctx, db, cfg)
 		},
 		SaveFn: func(row ui.CachePolicyRow) (ui.CachePolicyRow, error) {
 			ctx := context.Background()
@@ -299,11 +299,14 @@ func buildCachePolicyStore(paths config.Paths) ui.CachePolicyStore {
 			if err := cache.Migrate(ctx, db); err != nil {
 				return ui.CachePolicyRow{}, err
 			}
-			result, err := cache.NewSyncPolicyEditor(db).Save(ctx, cachePolicyFromRow(row))
+			if _, err := cache.NewSyncPolicyEditor(db).Save(ctx, cachePolicyFromRow(row)); err != nil {
+				return ui.CachePolicyRow{}, err
+			}
+			effective, err := gandtsync.NewPolicyEvaluator(db, cfg).EffectiveForLabel(ctx, row.AccountID, row.AccountEmail, row.LabelID)
 			if err != nil {
 				return ui.CachePolicyRow{}, err
 			}
-			return cachePolicyRowFromPolicy(row, result.Effective, true), nil
+			return cachePolicyRowFromLabelPolicy(row, effective, true), nil
 		},
 		ResetFn: func(row ui.CachePolicyRow) (ui.CachePolicyRow, error) {
 			ctx := context.Background()
@@ -315,22 +318,26 @@ func buildCachePolicyStore(paths config.Paths) ui.CachePolicyStore {
 			if err := cache.Migrate(ctx, db); err != nil {
 				return ui.CachePolicyRow{}, err
 			}
-			result, err := cache.NewSyncPolicyEditor(db).ResetToDefault(ctx, row.AccountID, row.LabelID)
+			if _, err := cache.NewSyncPolicyEditor(db).ResetToDefault(ctx, row.AccountID, row.LabelID); err != nil {
+				return ui.CachePolicyRow{}, err
+			}
+			effective, err := gandtsync.NewPolicyEvaluator(db, cfg).EffectiveForLabel(ctx, row.AccountID, row.AccountEmail, row.LabelID)
 			if err != nil {
 				return ui.CachePolicyRow{}, err
 			}
-			return cachePolicyRowFromPolicy(row, result.Effective, false), nil
+			return cachePolicyRowFromLabelPolicy(row, effective, false), nil
 		},
 	}
 }
 
-func loadCachePolicyTable(ctx context.Context, db *sqlx.DB) (ui.CachePolicyTable, error) {
+func loadCachePolicyTable(ctx context.Context, db *sqlx.DB, cfg config.Config) (ui.CachePolicyTable, error) {
 	accounts, err := cache.NewAccountRepository(db).List(ctx)
 	if err != nil {
 		return ui.CachePolicyTable{}, err
 	}
 	labels := cache.NewLabelRepository(db)
 	policies := cache.NewSyncPolicyRepository(db)
+	evaluator := gandtsync.NewPolicyEvaluator(db, cfg)
 
 	table := ui.CachePolicyTable{}
 	for _, account := range accounts {
@@ -339,7 +346,7 @@ func loadCachePolicyTable(ctx context.Context, db *sqlx.DB) (ui.CachePolicyTable
 			return ui.CachePolicyTable{}, err
 		}
 		for _, label := range accountLabels {
-			effective, err := policies.EffectiveForLabel(ctx, account.ID, label.ID)
+			effective, err := evaluator.EffectiveForLabel(ctx, account.ID, account.Email, label.ID)
 			if err != nil {
 				return ui.CachePolicyTable{}, err
 			}
@@ -354,9 +361,9 @@ func loadCachePolicyTable(ctx context.Context, db *sqlx.DB) (ui.CachePolicyTable
 				LabelID:         label.ID,
 				LabelName:       label.Name,
 				Explicit:        explicit,
-				Depth:           effective.Depth,
+				Depth:           string(effective.Depth),
 				RetentionDays:   cloneMainInt(effective.RetentionDays),
-				AttachmentRule:  effective.AttachmentRule,
+				AttachmentRule:  string(effective.AttachmentRule),
 				AttachmentMaxMB: cloneMainInt(effective.AttachmentMaxMB),
 			})
 		}
@@ -376,13 +383,13 @@ func cachePolicyFromRow(row ui.CachePolicyRow) cache.SyncPolicy {
 	}
 }
 
-func cachePolicyRowFromPolicy(row ui.CachePolicyRow, policy cache.SyncPolicy, explicit bool) ui.CachePolicyRow {
+func cachePolicyRowFromLabelPolicy(row ui.CachePolicyRow, policy gandtsync.LabelPolicy, explicit bool) ui.CachePolicyRow {
 	row.Explicit = explicit
 	if policy.Depth != "" {
-		row.Depth = policy.Depth
+		row.Depth = string(policy.Depth)
 	}
 	if policy.AttachmentRule != "" {
-		row.AttachmentRule = policy.AttachmentRule
+		row.AttachmentRule = string(policy.AttachmentRule)
 	}
 	row.RetentionDays = cloneMainInt(policy.RetentionDays)
 	row.AttachmentMaxMB = cloneMainInt(policy.AttachmentMaxMB)
@@ -641,7 +648,7 @@ func triageActionSummary(request ui.TriageActionRequest) string {
 	}
 }
 
-func loadInitialMailbox(paths config.Paths) (ui.Mailbox, bool) {
+func loadInitialMailbox(paths config.Paths, cfg config.Config) (ui.Mailbox, bool) {
 	ctx := context.Background()
 	db, err := cache.Open(ctx, paths)
 	if err != nil {
@@ -665,7 +672,7 @@ func loadInitialMailbox(paths config.Paths) (ui.Mailbox, bool) {
 	if err != nil {
 		return ui.AuthFailureMailbox(err.Error()), true
 	}
-	labelsForUI := uiLabels(cache.NewSyncPolicyRepository(db), account.ID, labels)
+	labelsForUI := uiLabels(ctx, db, cfg, account, labels)
 	messagesByLabel, err := uiMessagesByLabel(ctx, cache.NewMessageRepository(db), account.ID, labels)
 	if err != nil {
 		return ui.AuthFailureMailbox(err.Error()), true
@@ -823,12 +830,13 @@ func streamedThreadLoad(ctx context.Context, db *sqlx.DB, cfg config.Config, acc
 	return result, nil
 }
 
-func uiLabels(policies cache.SyncPolicyRepository, accountID string, labels []cache.Label) []ui.Label {
+func uiLabels(ctx context.Context, db *sqlx.DB, cfg config.Config, account cache.Account, labels []cache.Label) []ui.Label {
+	evaluator := gandtsync.NewPolicyEvaluator(db, cfg)
 	out := make([]ui.Label, 0, len(labels))
 	for _, label := range labels {
 		depth := ""
-		if policy, err := policies.EffectiveForLabel(context.Background(), accountID, label.ID); err == nil {
-			depth = policy.Depth
+		if policy, err := evaluator.EffectiveForLabel(ctx, account.ID, account.Email, label.ID); err == nil {
+			depth = string(policy.Depth)
 		}
 		out = append(out, ui.Label{
 			ID:         label.ID,

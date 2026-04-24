@@ -83,7 +83,7 @@ func TestCachePolicyStorePersistsRows(t *testing.T) {
 		t.Fatalf("migrate cache: %v", err)
 	}
 	account := seedMainTestAccount(t, db)
-	store := buildCachePolicyStore(paths)
+	store := buildCachePolicyStore(paths, config.Default())
 
 	table, err := store.LoadCachePolicies()
 	if err != nil {

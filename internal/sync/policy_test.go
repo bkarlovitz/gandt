@@ -228,6 +228,36 @@ func TestPolicyEvaluatorReflectsPolicyEditorChanges(t *testing.T) {
 	}
 }
 
+func TestPolicyEvaluatorReloadsConfigPoliciesBetweenLaunches(t *testing.T) {
+	ctx := context.Background()
+	db := migratedSyncTestDB(t)
+	account := seedSyncAccount(t, db)
+
+	first := config.Default()
+	first.Cache.Policies = []config.CachePolicy{
+		{Account: account.Email, Label: "Label_1", Depth: config.CacheDepthBody, RetentionDays: 14, AttachmentRule: config.AttachmentRuleNone},
+	}
+	firstPolicy, err := NewPolicyEvaluator(db, first).EffectiveForLabel(ctx, account.ID, account.Email, "Label_1")
+	if err != nil {
+		t.Fatalf("first effective policy: %v", err)
+	}
+	if firstPolicy.Source != PolicySourceConfig || firstPolicy.Depth != config.CacheDepthBody || valueOrZero(firstPolicy.RetentionDays) != 14 {
+		t.Fatalf("first policy = %#v, want config body/14", firstPolicy)
+	}
+
+	second := config.Default()
+	second.Cache.Policies = []config.CachePolicy{
+		{Account: account.Email, Label: "Label_1", Depth: config.CacheDepthFull, RetentionDays: 365, AttachmentRule: config.AttachmentRuleAll},
+	}
+	secondPolicy, err := NewPolicyEvaluator(db, second).EffectiveForLabel(ctx, account.ID, account.Email, "Label_1")
+	if err != nil {
+		t.Fatalf("second effective policy: %v", err)
+	}
+	if secondPolicy.Source != PolicySourceConfig || secondPolicy.Depth != config.CacheDepthFull || valueOrZero(secondPolicy.RetentionDays) != 365 || secondPolicy.AttachmentRule != config.AttachmentRuleAll {
+		t.Fatalf("second policy = %#v, want reloaded config full/365/all", secondPolicy)
+	}
+}
+
 func migratedSyncTestDB(t *testing.T) *sqlx.DB {
 	t.Helper()
 
