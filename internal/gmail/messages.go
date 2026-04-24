@@ -82,6 +82,7 @@ type Message struct {
 	Snippet      string
 	SizeEstimate int
 	InternalDate time.Time
+	Raw          string
 	Headers      []MessageHeader
 	Payload      *MessagePart
 }
@@ -242,6 +243,7 @@ func convertMessage(message *gmailapi.Message) Message {
 		Snippet:      message.Snippet,
 		SizeEstimate: int(message.SizeEstimate),
 		InternalDate: unixMilli(message.InternalDate),
+		Raw:          message.Raw,
 		Headers:      convertHeaders(payloadHeaders(message.Payload)),
 		Payload:      convertPartPtr(message.Payload),
 	}

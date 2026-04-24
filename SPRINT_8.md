@@ -49,7 +49,7 @@ Grounded in `prd.md` sections 8, 9, 13.3, 13.5, 13.7, 13.8, 14, 15, 17, 19, 20, 
   - Keep raw message generation deterministic for tests.
   - Validation: `go test ./internal/compose/...` parses generated MIME and verifies headers, body, and attachment parts.
 
-- [ ] **Task 8.8**: Implement Gmail drafts
+- [x] **Task 8.8**: Implement Gmail drafts
   - Add wrappers for drafts list, get, create, update, delete, and send.
   - Autosave every 30 seconds while compose is dirty.
   - Reopen Gmail drafts from the Drafts label into compose view.
