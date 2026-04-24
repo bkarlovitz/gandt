@@ -31,7 +31,7 @@ Grounded in `prd.md` sections 7, 8, 9, 10, 11, 16, 19, 20, and milestone M1.
   - Keep account IDs opaque UUID strings.
   - Validation: `go test ./internal/cache/...` covers create/list/get/update/delete and duplicate email errors.
 
-- [ ] **Task 2.5**: Implement label and policy repository operations
+- [x] **Task 2.5**: Implement label and policy repository operations
   - Add upsert/list/delete methods for labels.
   - Add account default and per-label `sync_policies` operations.
   - Seed the default policy from PRD section 11 when an account is created.

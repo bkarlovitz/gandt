@@ -58,7 +58,13 @@ func (r AccountRepository) Create(ctx context.Context, params CreateAccountParam
 		Color:       strings.TrimSpace(params.Color),
 	}
 
-	_, err := r.db.ExecContext(ctx, `
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return Account{}, fmt.Errorf("begin create account: %w", err)
+	}
+	defer tx.Rollback()
+
+	_, err = tx.ExecContext(ctx, `
 INSERT INTO accounts (id, email, display_name, added_at, history_id, color)
 VALUES (?, ?, ?, ?, ?, ?)
 `, account.ID, account.Email, nullIfEmpty(account.DisplayName), account.AddedAt, nullIfEmpty(account.HistoryID), nullIfEmpty(account.Color))
@@ -67,6 +73,12 @@ VALUES (?, ?, ?, ?, ?, ?)
 	}
 	if err != nil {
 		return Account{}, fmt.Errorf("create account: %w", err)
+	}
+	if err := seedDefaultSyncPolicies(ctx, tx, account.ID, account.AddedAt); err != nil {
+		return Account{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return Account{}, fmt.Errorf("commit create account: %w", err)
 	}
 
 	return account, nil
