@@ -7,7 +7,7 @@ Users can see what is cached, change cache policy by account and label, exclude 
 Grounded in `prd.md` sections 7, 10, 11, 16, 17, 18, 20, and milestone M2.
 
 ## Tasks
-- [ ] **Task 5.1**: Add cache size and count queries
+- [x] **Task 5.1**: Add cache size and count queries
   - Compute cache size by account, label, message age, attachment footprint, row counts, and FTS table footprint.
   - Keep dashboard queries fast enough for a 1 GB cache.
   - Expose query results through typed service structs.
