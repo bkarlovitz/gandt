@@ -19,7 +19,7 @@ Grounded in `prd.md` sections 7, 9, 10, 12, 13.2, 13.3, 14, 17, 18, 20, and mile
   - Keep JSON fields encoded through typed helpers instead of ad hoc string assembly.
   - Validation: `go test ./internal/cache/...` covers inserts, updates, cascades, label mappings, JSON fields, and FTS trigger updates.
 
-- [ ] **Task 3.3**: Implement policy evaluation for fetch depth
+- [x] **Task 3.3**: Implement policy evaluation for fetch depth
   - Resolve effective policy using explicit DB row, config policy, account default, and global default precedence.
   - Compute maximum depth and longest retention for messages with multiple labels.
   - Respect `cache_exclusions` by returning a never-persist decision.
