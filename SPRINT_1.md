@@ -37,7 +37,7 @@ Grounded in `prd.md` sections 5, 6, 12, 15, 16, 20, and milestone M0.
   - Create config, data, attachment, and log directories on startup with conservative permissions.
   - Validation: `go test ./internal/config/...` covers XDG env overrides and default paths.
 
-- [ ] **Task 1.6**: Implement config loading with PRD defaults
+- [x] **Task 1.6**: Implement config loading with PRD defaults
   - Add `config.toml` parsing for `ui`, `sync`, `cache`, `accounts`, `keys`, and `paths`.
   - Apply sane defaults when no config file exists.
   - Validate enum values for render mode, compose editor, cache depth, and attachment rules.

@@ -51,6 +51,10 @@ func main() {
 		fmt.Fprintf(os.Stderr, "gandt: create data directories: %v\n", err)
 		os.Exit(1)
 	}
+	if _, err := config.Load(paths); err != nil {
+		fmt.Fprintf(os.Stderr, "gandt: load config: %v\n", err)
+		os.Exit(1)
+	}
 
 	program := tea.NewProgram(model{}, tea.WithAltScreen())
 	if _, err := program.Run(); err != nil {

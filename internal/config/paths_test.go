@@ -88,9 +88,9 @@ func fakeHome(home string) func() (string, error) {
 	}
 }
 
-func assertEqual(t *testing.T, got, want string) {
+func assertEqual[T comparable](t *testing.T, got, want T) {
 	t.Helper()
 	if got != want {
-		t.Fatalf("got %q, want %q", got, want)
+		t.Fatalf("got %v, want %v", got, want)
 	}
 }

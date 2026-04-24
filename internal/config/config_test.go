@@ -1,0 +1,150 @@
+package config
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+func TestLoadMissingConfigReturnsDefaults(t *testing.T) {
+	cfg, err := Load(Paths{ConfigFile: filepath.Join(t.TempDir(), "config.toml")})
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+
+	assertEqual(t, string(cfg.UI.Theme), "dark")
+	assertEqual(t, string(cfg.UI.ComposeEditor), "external")
+	assertEqual(t, string(cfg.UI.RenderModeDefault), "plaintext")
+	assertEqual(t, cfg.Sync.PollActiveSeconds, 60)
+	assertEqual(t, string(cfg.Cache.Defaults.Depth), "full")
+	assertEqual(t, string(cfg.Cache.Defaults.AttachmentRule), "under_size")
+	assertEqual(t, cfg.Paths.Downloads, "~/Downloads")
+}
+
+func TestLoadValidConfig(t *testing.T) {
+	path := writeConfig(t, `
+[ui]
+theme = "light"
+compose_editor = "inline"
+render_mode_default = "glamour"
+render_url_footnotes = false
+
+[sync]
+poll_active_seconds = 30
+poll_idle_seconds = 120
+backfill_limit_per_label = 250
+
+[cache.defaults]
+depth = "body"
+retention_days = 45
+attachment_rule = "none"
+attachment_max_mb = 5
+total_budget_mb = 1000
+
+[[cache.policies]]
+account = "work"
+label = "receipts"
+depth = "full"
+retention_days = 1825
+attachment_rule = "all"
+attachment_max_mb = 20
+
+[[cache.exclusions]]
+account = "personal"
+match_type = "label"
+match_value = "private"
+
+[accounts.work]
+color = "#4287f5"
+
+[keys]
+archive = "e"
+trash = "#"
+
+[paths]
+downloads = "~/mail-downloads"
+`)
+
+	cfg, err := Load(Paths{ConfigFile: path})
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+
+	assertEqual(t, string(cfg.UI.Theme), "light")
+	assertEqual(t, string(cfg.UI.ComposeEditor), "inline")
+	assertEqual(t, string(cfg.UI.RenderModeDefault), "glamour")
+	assertEqual(t, cfg.UI.RenderURLFootnotes, false)
+	assertEqual(t, cfg.Sync.PollActiveSeconds, 30)
+	assertEqual(t, string(cfg.Cache.Defaults.Depth), "body")
+	assertEqual(t, len(cfg.Cache.Policies), 1)
+	assertEqual(t, string(cfg.Cache.Policies[0].AttachmentRule), "all")
+	assertEqual(t, len(cfg.Cache.Exclusions), 1)
+	assertEqual(t, cfg.Accounts["work"].Color, "#4287f5")
+	assertEqual(t, cfg.Keys["trash"], "#")
+	assertEqual(t, cfg.Paths.Downloads, "~/mail-downloads")
+}
+
+func TestLoadRejectsInvalidEnums(t *testing.T) {
+	tests := map[string]string{
+		"compose editor": `
+[ui]
+compose_editor = "terminal"
+`,
+		"render mode": `
+[ui]
+render_mode_default = "rich"
+`,
+		"cache depth": `
+[cache.defaults]
+depth = "everything"
+`,
+		"attachment rule": `
+[cache.defaults]
+attachment_rule = "small"
+`,
+	}
+
+	for name, body := range tests {
+		t.Run(name, func(t *testing.T) {
+			_, err := Load(Paths{ConfigFile: writeConfig(t, body)})
+			if err == nil {
+				t.Fatal("expected invalid enum error")
+			}
+		})
+	}
+}
+
+func TestLoadConfigOverridesKeepUnspecifiedDefaults(t *testing.T) {
+	path := writeConfig(t, `
+[ui]
+compose_editor = "inline"
+
+[cache.defaults]
+depth = "metadata"
+`)
+
+	cfg, err := Load(Paths{ConfigFile: path})
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+
+	assertEqual(t, string(cfg.UI.ComposeEditor), "inline")
+	assertEqual(t, string(cfg.UI.RenderModeDefault), "plaintext")
+	assertEqual(t, string(cfg.Cache.Defaults.Depth), "metadata")
+	assertEqual(t, cfg.Cache.Defaults.RetentionDays, 90)
+	assertEqual(t, string(cfg.Cache.Defaults.AttachmentRule), "under_size")
+	assertEqual(t, cfg.Cache.Defaults.TotalBudgetMB, 2000)
+}
+
+func writeConfig(t *testing.T, body string) string {
+	t.Helper()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	if err := os.WriteFile(path, []byte(strings.TrimSpace(body)+"\n"), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	return path
+}
