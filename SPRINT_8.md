@@ -55,7 +55,7 @@ Grounded in `prd.md` sections 8, 9, 13.3, 13.5, 13.7, 13.8, 14, 15, 17, 19, 20, 
   - Reopen Gmail drafts from the Drafts label into compose view.
   - Validation: `go test ./internal/gmail ./internal/compose ./internal/ui` covers create/update/delete/send, autosave timing, and reopen behavior.
 
-- [ ] **Task 8.9**: Implement send and outbox retry
+- [x] **Task 8.9**: Implement send and outbox retry
   - Add wrappers for `users.messages.send` and draft send.
   - On network failure, write raw RFC 822 bytes into `outbox` with pending status.
   - Retry with exponential backoff when connectivity returns and mark sent or failed.
