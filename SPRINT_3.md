@@ -25,7 +25,7 @@ Grounded in `prd.md` sections 7, 9, 10, 12, 13.2, 13.3, 14, 17, 18, 20, and mile
   - Respect `cache_exclusions` by returning a never-persist decision.
   - Validation: `go test ./internal/sync/...` covers policy precedence, multi-label maximum depth, retention selection, and exclusion matches.
 
-- [ ] **Task 3.4**: Build first-time backfill orchestration
+- [x] **Task 3.4**: Build first-time backfill orchestration
   - For included labels, page through Gmail message IDs within retention and backfill limits.
   - Batch metadata fetches in groups of 100 where supported by the Gmail client abstraction.
   - Enqueue body fetches for policies with `body` or `full` depth.
