@@ -12,7 +12,7 @@ Do not use personal or production mailboxes for destructive actions such as spam
 
 ## 1. Prepare The Local QA Environment
 
-- [ ] Confirm local prerequisites are available:
+- [X] Confirm local prerequisites are available:
 
   ```sh
   go version
@@ -23,7 +23,7 @@ Do not use personal or production mailboxes for destructive actions such as spam
 
   Expected: Go 1.25 or newer, `rg`, `sqlite3`, and `goreleaser` are available. If `goreleaser` is missing, complete the app QA first and mark release packaging blocked until it is installed.
 
-- [ ] Use isolated config, data, and download directories for this QA pass:
+- [X] Use isolated config, data, and download directories for this QA pass:
 
   ```sh
   cd /home/karlo/uwchlan/gandt
@@ -35,7 +35,7 @@ Do not use personal or production mailboxes for destructive actions such as spam
 
   Expected: all cache, logs, attachments, and downloads for this run stay under `.qa/`.
 
-- [ ] Build and run automated checks:
+- [X] Build and run automated checks:
 
   ```sh
   make test
@@ -46,7 +46,7 @@ Do not use personal or production mailboxes for destructive actions such as spam
 
   Expected: tests and vet pass. `--version` prints `dev` for a local build unless you built with `make build VERSION=<release>`.
 
-- [ ] Prepare Gmail test data before launching the TUI:
+- [X] Prepare Gmail test data before launching the TUI:
   - Send at least one plaintext message from B to A.
   - Send at least one HTML or newsletter-like message to A.
   - Send at least one message with a small attachment to A.
