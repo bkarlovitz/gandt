@@ -31,7 +31,7 @@ Grounded in `prd.md` sections 5, 12, 13.10, 14, 15, 16, 17, 18, 19, 20, 21 M6, 2
   - Ensure DB corruption, keychain inaccessible, OAuth revoked, rate-limited, and offline states are distinct.
   - Validation: `go test ./internal/ui ./internal/auth ./internal/cache ./internal/gmail` covers representative fatal and non-fatal errors.
 
-- [ ] **Task 9.5**: Complete performance pass
+- [x] **Task 9.5**: Complete performance pass
   - Benchmark cold start, cached inbox render, cached thread open, online search, offline search, triage action latency, memory for 10k cached messages, and binary size.
   - Optimize query indexes, view model construction, and render paths that miss targets.
   - Record results in release notes or a performance doc.

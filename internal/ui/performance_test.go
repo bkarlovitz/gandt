@@ -23,6 +23,60 @@ func BenchmarkMailboxRender5000(b *testing.B) {
 	}
 }
 
+func BenchmarkColdStartNoAccountView(b *testing.B) {
+	cfg := config.Default()
+
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		model := New(cfg, WithMailbox(NoAccountMailbox()))
+		updated, _ := model.Update(tea.WindowSizeMsg{Width: 132, Height: 40})
+		_ = updated.(Model).View()
+	}
+}
+
+func BenchmarkCachedThreadOpen5000(b *testing.B) {
+	model := New(config.Default(), WithMailbox(performanceMailbox(5000)))
+	updated, _ := model.Update(tea.WindowSizeMsg{Width: 132, Height: 40})
+	model = updated.(Model)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		updated, cmd := model.Update(keyMsg("enter"))
+		if cmd != nil {
+			b.Fatal("cached thread open should not load")
+		}
+		model = updated.(Model)
+		model.readerOpen = false
+		model.focus = PaneList
+	}
+}
+
+func BenchmarkSearchResultsRender100(b *testing.B) {
+	results := performanceMailbox(100).Messages
+	model := New(config.Default())
+	model.mode = ModeSearch
+	model.search = SearchState{Query: "subject", Mode: SearchModeOffline, Results: results, Submitted: true}
+	updated, _ := model.Update(tea.WindowSizeMsg{Width: 132, Height: 40})
+	model = updated.(Model)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = model.View()
+	}
+}
+
+func BenchmarkMailboxMemory10000(b *testing.B) {
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		model := New(config.Default(), WithMailbox(performanceMailbox(10000)))
+		if len(model.mailbox.Messages) != 10000 {
+			b.Fatal("missing benchmark messages")
+		}
+	}
+}
+
 func BenchmarkTriageOptimisticAction5000(b *testing.B) {
 	mailbox := performanceMailbox(5000)
 	actor := &fakeTriageActor{}
