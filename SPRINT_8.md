@@ -25,7 +25,7 @@ Grounded in `prd.md` sections 8, 9, 13.3, 13.5, 13.7, 13.8, 14, 15, 17, 19, 20, 
   - Keep forms usable in narrow terminal layouts.
   - Validation: `go test ./internal/ui/...` covers form initialization, validation errors, cancel, and submit states.
 
-- [ ] **Task 8.4**: Implement external editor integration
+- [x] **Task 8.4**: Implement external editor integration
   - Open `$EDITOR` on a temporary file with prefilled quoted content where relevant.
   - Fall back to inline textarea when `$EDITOR` is unset or config forces inline mode.
   - Clean up temp files without losing text on editor failure.
