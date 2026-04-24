@@ -352,9 +352,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		delete(m.pendingActions, msg.ID)
 		if msg.Err != nil {
 			if ok {
-				m.mailbox = snapshot.Mailbox
-				m.selectedMessage = snapshot.SelectedMessage
-				m.selectedThreadMessage = snapshot.SelectedThreadMessage
+				if sameAccountRef(m.mailbox.Account, msg.Request.Account) {
+					m.mailbox = snapshot.Mailbox
+					m.selectedMessage = snapshot.SelectedMessage
+					m.selectedThreadMessage = snapshot.SelectedThreadMessage
+					m.updateActiveAccountState()
+				} else {
+					m.updateAccountStateSnapshot(msg.Request.Account, snapshot.Mailbox)
+				}
 			}
 			if m.undo != nil && sameTriageRequest(m.undo.Request, msg.Request) {
 				m.undo = nil
@@ -362,7 +367,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.applyStatusOrError("action failed: "+msg.Err.Error(), msg.Err, msg.Request.Account)
 			return m, nil
 		}
-		m.reconcileTriageResult(msg.Request, msg.Result)
+		if sameAccountRef(m.mailbox.Account, msg.Request.Account) {
+			m.reconcileTriageResult(msg.Request, msg.Result)
+			m.updateActiveAccountState()
+		}
 		summary := msg.Result.Summary
 		if msg.Request.Undo {
 			summary = triageDoneSummary(msg.Request)
@@ -941,6 +949,24 @@ func (m *Model) applyActiveAccount() {
 	m.statusMessage = "switched to " + m.mailbox.Account
 }
 
+func (m *Model) updateActiveAccountState() {
+	if m.activeAccount < 0 || m.activeAccount >= len(m.accounts) {
+		return
+	}
+	m.accounts[m.activeAccount].Mailbox = cloneMailbox(m.mailbox)
+	m.accounts[m.activeAccount].Unread = unreadCount(m.mailbox)
+}
+
+func (m *Model) updateAccountStateSnapshot(account string, mailbox Mailbox) {
+	for i := range m.accounts {
+		if sameAccountRef(m.accounts[i].Account, account) || sameAccountRef(m.accounts[i].Mailbox.Account, account) {
+			m.accounts[i].Mailbox = cloneMailbox(mailbox)
+			m.accounts[i].Unread = unreadCount(mailbox)
+			return
+		}
+	}
+}
+
 func (m Model) activeStyles() Styles {
 	if m.activeAccount >= 0 && m.activeAccount < len(m.accounts) {
 		return m.styles.WithAccent(m.accounts[m.activeAccount].Color)
@@ -1503,6 +1529,7 @@ func (m Model) startTriageActionWithUndo(request TriageActionRequest, recordUndo
 		}
 	}
 	m.applyOptimisticAction(request)
+	m.updateActiveAccountState()
 	summary := triageProgressSummary(request)
 	m.statusMessage = summary
 	m.toastMessage = summary
@@ -2195,4 +2222,8 @@ func unreadCount(mailbox Mailbox) int {
 		}
 	}
 	return total
+}
+
+func sameAccountRef(a, b string) bool {
+	return strings.EqualFold(strings.TrimSpace(a), strings.TrimSpace(b))
 }

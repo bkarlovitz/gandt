@@ -43,7 +43,7 @@ Grounded in `prd.md` sections 1, 3, 4, 7, 8, 10, 12, 13.1, 13.6, 16, 20, and mil
   - Show clear empty states when the active account has no cached data yet.
   - Validation: `go test ./internal/ui ./internal/cache` uses two accounts with overlapping Gmail IDs and verifies isolated views.
 
-- [ ] **Task 6.7**: Route triage operations by message account
+- [x] **Task 6.7**: Route triage operations by message account
   - Attach account IDs to selected message/thread actions.
   - Prevent actions from applying to the wrong account after a fast account switch.
   - Keep undo scoped to the account and message/thread that created it.
