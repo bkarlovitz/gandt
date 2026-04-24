@@ -37,7 +37,7 @@ Grounded in `prd.md` sections 1, 3, 4, 7, 8, 10, 12, 13.1, 13.6, 16, 20, and mil
   - Preserve `NO_COLOR` behavior.
   - Validation: `go test ./internal/ui/...` snapshots default color, configured color, and no-color output.
 
-- [ ] **Task 6.6**: Route read operations by active account
+- [x] **Task 6.6**: Route read operations by active account
   - Ensure label list, mailbox list, reader, body fetch, attachment metadata, and cache queries are scoped by active account.
   - Prevent cross-account leakage in all view models.
   - Show clear empty states when the active account has no cached data yet.

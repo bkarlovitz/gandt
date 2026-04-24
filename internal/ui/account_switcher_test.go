@@ -59,6 +59,51 @@ func TestAccountDigitShortcutSwitchesWithoutOpeningOverlay(t *testing.T) {
 	}
 }
 
+func TestActiveAccountReadViewDoesNotLeakOverlappingMessageIDs(t *testing.T) {
+	model := New(config.Default(), WithAccounts([]AccountState{
+		{
+			Account: "work@example.com",
+			Mailbox: RealAccountMailbox("work@example.com", []Label{{ID: "INBOX", Name: "Inbox", System: true}}, map[string][]Message{
+				"INBOX": {{ID: "shared-id", ThreadID: "work-thread", Subject: "Work only"}},
+			}),
+		},
+		{
+			Account: "personal@example.com",
+			Mailbox: RealAccountMailbox("personal@example.com", []Label{{ID: "INBOX", Name: "Inbox", System: true}}, map[string][]Message{
+				"INBOX": {{ID: "shared-id", ThreadID: "personal-thread", Subject: "Personal only"}},
+			}),
+		},
+	}))
+	model.width = 132
+	model.height = 10
+
+	if view := model.View(); !strings.Contains(view, "Work only") || strings.Contains(view, "Personal only") {
+		t.Fatalf("initial account view leaked messages:\n%s", view)
+	}
+	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'2'}})
+	if cmd != nil {
+		t.Fatalf("switch returned command %T, want cached switch", cmd)
+	}
+	model = updated.(Model)
+	if view := model.View(); !strings.Contains(view, "Personal only") || strings.Contains(view, "Work only") {
+		t.Fatalf("switched account view leaked messages:\n%s", view)
+	}
+}
+
+func TestActiveAccountWithoutCachedDataShowsEmptyState(t *testing.T) {
+	model := New(config.Default(), WithAccounts([]AccountState{{
+		Account: "empty@example.com",
+		Mailbox: RealAccountMailbox("empty@example.com", []Label{{ID: "INBOX", Name: "Inbox", System: true}}, map[string][]Message{
+			"INBOX": nil,
+		}),
+	}}))
+
+	view := model.View()
+	if !strings.Contains(view, "No cached messages") || !strings.Contains(view, "No message selected") {
+		t.Fatalf("empty active account view missing empty states:\n%s", view)
+	}
+}
+
 func switcherTestModel() Model {
 	return New(config.Default(), WithAccounts([]AccountState{
 		{

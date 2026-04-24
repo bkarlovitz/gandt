@@ -290,6 +290,51 @@ func TestMessageRepositoryListSummariesByLabel(t *testing.T) {
 	}
 }
 
+func TestMessageRepositoryScopesOverlappingGmailIDsByAccount(t *testing.T) {
+	ctx := context.Background()
+	db := migratedTestDB(t)
+	accounts := NewAccountRepository(db)
+	first, err := accounts.Create(ctx, CreateAccountParams{Email: "first@example.com"})
+	if err != nil {
+		t.Fatalf("create first account: %v", err)
+	}
+	second, err := accounts.Create(ctx, CreateAccountParams{Email: "second@example.com"})
+	if err != nil {
+		t.Fatalf("create second account: %v", err)
+	}
+	for _, account := range []Account{first, second} {
+		if err := NewLabelRepository(db).Upsert(ctx, Label{AccountID: account.ID, ID: "INBOX", Name: "Inbox", Type: "system"}); err != nil {
+			t.Fatalf("upsert label: %v", err)
+		}
+		if err := NewThreadRepository(db).Upsert(ctx, Thread{AccountID: account.ID, ID: "shared-thread"}); err != nil {
+			t.Fatalf("upsert thread: %v", err)
+		}
+	}
+	firstBody := "first account body"
+	secondBody := "second account body"
+	if err := NewMessageRepository(db).Upsert(ctx, Message{AccountID: first.ID, ID: "shared-message", ThreadID: "shared-thread", Subject: "First", BodyPlain: &firstBody}); err != nil {
+		t.Fatalf("upsert first message: %v", err)
+	}
+	if err := NewMessageRepository(db).Upsert(ctx, Message{AccountID: second.ID, ID: "shared-message", ThreadID: "shared-thread", Subject: "Second", BodyPlain: &secondBody}); err != nil {
+		t.Fatalf("upsert second message: %v", err)
+	}
+
+	firstMessage, err := NewMessageRepository(db).Get(ctx, first.ID, "shared-message")
+	if err != nil {
+		t.Fatalf("get first message: %v", err)
+	}
+	secondMessage, err := NewMessageRepository(db).Get(ctx, second.ID, "shared-message")
+	if err != nil {
+		t.Fatalf("get second message: %v", err)
+	}
+	if firstMessage.Subject != "First" || *firstMessage.BodyPlain != firstBody {
+		t.Fatalf("first message = %#v, want first account body", firstMessage)
+	}
+	if secondMessage.Subject != "Second" || *secondMessage.BodyPlain != secondBody {
+		t.Fatalf("second message = %#v, want second account body", secondMessage)
+	}
+}
+
 func BenchmarkMessageRepositoryListSummariesByLabel5000(b *testing.B) {
 	ctx := context.Background()
 	db, err := OpenPath(ctx, b.TempDir()+"/cache.db")
