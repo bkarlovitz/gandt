@@ -17,6 +17,7 @@ const (
 
 type MessageReader interface {
 	ListMessages(context.Context, ListMessagesOptions) (ListMessagesPage, error)
+	ListHistory(context.Context, ListHistoryOptions) (HistoryPage, error)
 	GetMessageMetadata(context.Context, string, ...string) (Message, error)
 	GetMessageFull(context.Context, string) (Message, error)
 	BatchGetMessageMetadata(context.Context, []string, ...string) ([]Message, error)
@@ -35,6 +36,37 @@ type ListMessagesPage struct {
 	Messages           []MessageRef
 	NextPageToken      string
 	ResultSizeEstimate int
+}
+
+type ListHistoryOptions struct {
+	StartHistoryID string
+	PageToken      string
+	MaxResults     int64
+	LabelID        string
+	HistoryTypes   []string
+}
+
+type HistoryPage struct {
+	Records       []HistoryRecord
+	NextPageToken string
+	HistoryID     string
+}
+
+type HistoryRecord struct {
+	ID              string
+	MessagesAdded   []HistoryMessageChange
+	MessagesDeleted []HistoryMessageChange
+	LabelsAdded     []HistoryLabelChange
+	LabelsRemoved   []HistoryLabelChange
+}
+
+type HistoryMessageChange struct {
+	Message MessageRef
+}
+
+type HistoryLabelChange struct {
+	Message  MessageRef
+	LabelIDs []string
 }
 
 type MessageRef struct {

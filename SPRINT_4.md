@@ -7,7 +7,7 @@
 Grounded in `prd.md` sections 9, 10, 13.6, 17, 18, 20, and milestone M2.
 
 ## Tasks
-- [ ] **Task 4.1**: Implement `history.list` delta sync
+- [x] **Task 4.1**: Implement `history.list` delta sync
   - Fetch changes from the stored account `history_id`.
   - Process messages added, messages deleted, labels added, and labels removed in order.
   - Update account history ID only after successfully applying the batch.

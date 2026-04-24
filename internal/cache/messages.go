@@ -203,12 +203,12 @@ ON CONFLICT(account_id, id) DO UPDATE SET
   date = excluded.date,
   snippet = excluded.snippet,
   size_bytes = excluded.size_bytes,
-  body_plain = excluded.body_plain,
-  body_html = excluded.body_html,
+  body_plain = COALESCE(excluded.body_plain, messages.body_plain),
+  body_html = COALESCE(excluded.body_html, messages.body_html),
   raw_headers = excluded.raw_headers,
   internal_date = excluded.internal_date,
-  fetched_full = excluded.fetched_full,
-  cached_at = excluded.cached_at
+  fetched_full = CASE WHEN excluded.fetched_full = 1 THEN excluded.fetched_full ELSE messages.fetched_full END,
+  cached_at = COALESCE(excluded.cached_at, messages.cached_at)
 `, message.AccountID, message.ID, message.ThreadID, nullIfEmpty(message.FromAddr), toAddrs, ccAddrs, bccAddrs,
 		nullIfEmpty(message.Subject), timeOrNil(message.Date), nullIfEmpty(message.Snippet), message.SizeBytes,
 		stringPtrOrNil(message.BodyPlain), stringPtrOrNil(message.BodyHTML), headers,
@@ -217,6 +217,14 @@ ON CONFLICT(account_id, id) DO UPDATE SET
 		return fmt.Errorf("upsert message: %w", err)
 	}
 	return nil
+}
+
+func (r MessageRepository) Delete(ctx context.Context, accountID string, id string) error {
+	result, err := r.db.ExecContext(ctx, "DELETE FROM messages WHERE account_id = ? AND id = ?", accountID, id)
+	if err != nil {
+		return fmt.Errorf("delete message: %w", err)
+	}
+	return requireAffected(result, ErrMessageNotFound)
 }
 
 func (r MessageRepository) Get(ctx context.Context, accountID string, id string) (Message, error) {
@@ -394,6 +402,14 @@ func (r MessageLabelRepository) ReplaceForMessage(ctx context.Context, accountID
 		return fmt.Errorf("commit replace message labels: %w", err)
 	}
 	return nil
+}
+
+func (r MessageLabelRepository) Delete(ctx context.Context, accountID string, messageID string, labelID string) error {
+	result, err := r.db.ExecContext(ctx, "DELETE FROM message_labels WHERE account_id = ? AND message_id = ? AND label_id = ?", accountID, messageID, labelID)
+	if err != nil {
+		return fmt.Errorf("delete message label: %w", err)
+	}
+	return requireAffected(result, ErrMessageLabelAbsent)
 }
 
 type AttachmentRepository struct {

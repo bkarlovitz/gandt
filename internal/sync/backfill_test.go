@@ -282,6 +282,10 @@ func (f *fakeMessageReader) ListMessages(ctx context.Context, opts gmail.ListMes
 	return f.pages[labelID][index], nil
 }
 
+func (f *fakeMessageReader) ListHistory(ctx context.Context, opts gmail.ListHistoryOptions) (gmail.HistoryPage, error) {
+	return gmail.HistoryPage{}, fmt.Errorf("unexpected history list from backfill fake")
+}
+
 func (f *fakeMessageReader) GetMessageMetadata(ctx context.Context, id string, headers ...string) (gmail.Message, error) {
 	message, ok := f.metadata[id]
 	if !ok {
