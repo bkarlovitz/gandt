@@ -12,7 +12,9 @@ type OptimisticActionKind string
 const (
 	OptimisticArchive      OptimisticActionKind = "archive"
 	OptimisticTrash        OptimisticActionKind = "trash"
+	OptimisticUntrash      OptimisticActionKind = "untrash"
 	OptimisticSpam         OptimisticActionKind = "spam"
+	OptimisticUnspam       OptimisticActionKind = "unspam"
 	OptimisticToggleStar   OptimisticActionKind = "toggle-star"
 	OptimisticToggleUnread OptimisticActionKind = "toggle-unread"
 	OptimisticLabelAdd     OptimisticActionKind = "label-add"
@@ -58,8 +60,12 @@ func (r OptimisticActionRepository) Apply(ctx context.Context, action Optimistic
 		err = r.removeLabels(ctx, action, "INBOX")
 	case OptimisticTrash:
 		err = r.replaceSystemLocation(ctx, action, "TRASH")
+	case OptimisticUntrash:
+		err = r.restoreSystemLocation(ctx, action, "TRASH")
 	case OptimisticSpam:
 		err = r.replaceSystemLocation(ctx, action, "SPAM")
+	case OptimisticUnspam:
+		err = r.restoreSystemLocation(ctx, action, "SPAM")
 	case OptimisticToggleStar:
 		err = r.toggleLabel(ctx, action, "STARRED", action.Add)
 	case OptimisticToggleUnread:
@@ -100,6 +106,13 @@ func (r OptimisticActionRepository) replaceSystemLocation(ctx context.Context, a
 		return err
 	}
 	return r.addLabels(ctx, action, labelID)
+}
+
+func (r OptimisticActionRepository) restoreSystemLocation(ctx context.Context, action OptimisticAction, labelID string) error {
+	if err := r.removeLabels(ctx, action, labelID); err != nil {
+		return err
+	}
+	return r.addLabels(ctx, action, "INBOX")
 }
 
 func (r OptimisticActionRepository) toggleLabel(ctx context.Context, action OptimisticAction, labelID string, add bool) error {

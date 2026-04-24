@@ -293,8 +293,12 @@ func cacheActionForRequest(accountID string, request ui.TriageActionRequest) cac
 		action.Kind = cache.OptimisticArchive
 	case ui.TriageTrash:
 		action.Kind = cache.OptimisticTrash
+	case ui.TriageUntrash:
+		action.Kind = cache.OptimisticUntrash
 	case ui.TriageSpam:
 		action.Kind = cache.OptimisticSpam
+	case ui.TriageUnspam:
+		action.Kind = cache.OptimisticUnspam
 	case ui.TriageStar:
 		action.Kind = cache.OptimisticToggleStar
 	case ui.TriageUnread:
@@ -315,8 +319,12 @@ func dispatchGmailAction(ctx context.Context, client *gandtgmail.Client, request
 		return client.BatchModifyMessages(ctx, gandtgmail.MessageModifyRequest{IDs: []string{request.MessageID}, RemoveLabelIDs: []string{"INBOX"}})
 	case ui.TriageTrash:
 		return client.TrashMessage(ctx, request.MessageID)
+	case ui.TriageUntrash:
+		return client.UntrashMessage(ctx, request.MessageID)
 	case ui.TriageSpam:
 		return client.BatchModifyMessages(ctx, gandtgmail.MessageModifyRequest{IDs: []string{request.MessageID}, AddLabelIDs: []string{"SPAM"}, RemoveLabelIDs: []string{"INBOX"}})
+	case ui.TriageUnspam:
+		return client.BatchModifyMessages(ctx, gandtgmail.MessageModifyRequest{IDs: []string{request.MessageID}, AddLabelIDs: []string{"INBOX"}, RemoveLabelIDs: []string{"SPAM"}})
 	case ui.TriageStar:
 		return client.BatchModifyMessages(ctx, labelToggleRequest(request.MessageID, "STARRED", request.Add))
 	case ui.TriageUnread:
@@ -348,8 +356,12 @@ func triageActionSummary(request ui.TriageActionRequest) string {
 		return "archived"
 	case ui.TriageTrash:
 		return "trashed"
+	case ui.TriageUntrash:
+		return "restored from trash"
 	case ui.TriageSpam:
 		return "marked spam"
+	case ui.TriageUnspam:
+		return "restored from spam"
 	case ui.TriageStar:
 		if request.Add {
 			return "starred"

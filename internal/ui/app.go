@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/bkarlovitz/gandt/internal/config"
 	gandtsync "github.com/bkarlovitz/gandt/internal/sync"
@@ -60,6 +61,8 @@ type Model struct {
 	triageActor           TriageActor
 	nextActionID          int
 	pendingActions        map[int]triageSnapshot
+	undo                  *undoState
+	now                   func() time.Time
 	syncCoordinator       SyncCoordinator
 	syncContext           context.Context
 	syncCancel            context.CancelFunc
@@ -72,6 +75,12 @@ type triageSnapshot struct {
 	Mailbox               Mailbox
 	SelectedMessage       int
 	SelectedThreadMessage int
+}
+
+type undoState struct {
+	Request  TriageActionRequest
+	Snapshot triageSnapshot
+	Expires  time.Time
 }
 
 func WithAccountAdder(adder AccountAdder) Option {
@@ -120,6 +129,14 @@ func WithTriageActor(actor TriageActor) Option {
 	}
 }
 
+func WithNow(fn func() time.Time) Option {
+	return func(m *Model) {
+		if fn != nil {
+			m.now = fn
+		}
+	}
+}
+
 type SyncCoordinator interface {
 	Next(context.Context, bool) gandtsync.CoordinatorUpdate
 }
@@ -141,6 +158,7 @@ func New(cfg config.Config, opts ...Option) Model {
 		mode:           ModeNormal,
 		focus:          PaneList,
 		renderMode:     string(cfg.UI.RenderModeDefault),
+		now:            time.Now,
 		pendingActions: map[int]triageSnapshot{},
 	}
 	for _, opt := range opts {
@@ -212,12 +230,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.selectedMessage = snapshot.SelectedMessage
 				m.selectedThreadMessage = snapshot.SelectedThreadMessage
 			}
+			if m.undo != nil && sameTriageRequest(m.undo.Request, msg.Request) {
+				m.undo = nil
+			}
 			m.statusMessage = "action failed: " + msg.Err.Error()
 			m.toastMessage = m.statusMessage
 			return m, nil
 		}
 		summary := msg.Result.Summary
-		if summary == "" {
+		if msg.Request.Undo {
+			summary = triageDoneSummary(msg.Request)
+		} else if summary == "" {
 			summary = triageDoneSummary(msg.Request)
 		}
 		m.statusMessage = summary
@@ -358,6 +381,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.startSelectedTriageAction(TriageStar)
 	case "u":
 		return m.startSelectedTriageAction(TriageUnread)
+	case "U":
+		return m.startUndo()
 	case "m":
 		return m.startSelectedTriageAction(TriageMute)
 	case "r":
@@ -539,6 +564,10 @@ func (m Model) startSelectedTriageAction(kind TriageActionKind) (tea.Model, tea.
 }
 
 func (m Model) startTriageAction(request TriageActionRequest) (tea.Model, tea.Cmd) {
+	return m.startTriageActionWithUndo(request, true, nil)
+}
+
+func (m Model) startTriageActionWithUndo(request TriageActionRequest, recordUndo bool, overrideSnapshot *triageSnapshot) (tea.Model, tea.Cmd) {
 	if m.triageActor == nil {
 		m.statusMessage = "action unavailable"
 		m.toastMessage = m.statusMessage
@@ -563,16 +592,63 @@ func (m Model) startTriageAction(request TriageActionRequest) (tea.Model, tea.Cm
 	}
 	m.nextActionID++
 	actionID := m.nextActionID
-	m.pendingActions[actionID] = triageSnapshot{
+	snapshot := triageSnapshot{
 		Mailbox:               cloneMailbox(m.mailbox),
 		SelectedMessage:       m.selectedMessage,
 		SelectedThreadMessage: m.selectedThreadMessage,
+	}
+	if overrideSnapshot != nil {
+		snapshot = *overrideSnapshot
+	}
+	m.pendingActions[actionID] = snapshot
+	if recordUndo {
+		m.undo = &undoState{
+			Request:  request,
+			Snapshot: snapshot,
+			Expires:  m.now().Add(30 * time.Second),
+		}
 	}
 	m.applyOptimisticAction(request)
 	summary := triageProgressSummary(request)
 	m.statusMessage = summary
 	m.toastMessage = summary
 	return m, m.runTriageAction(actionID, request)
+}
+
+func (m Model) startUndo() (tea.Model, tea.Cmd) {
+	if m.undo == nil {
+		m.statusMessage = "nothing to undo"
+		m.toastMessage = m.statusMessage
+		return m, nil
+	}
+	if !m.now().Before(m.undo.Expires) {
+		m.undo = nil
+		m.statusMessage = "undo expired"
+		m.toastMessage = m.statusMessage
+		return m, nil
+	}
+	inverse, ok := inverseTriageRequest(m.undo.Request)
+	if !ok {
+		m.undo = nil
+		m.statusMessage = "undo unavailable"
+		m.toastMessage = m.statusMessage
+		return m, nil
+	}
+	inverse.Account = firstNonEmpty(inverse.Account, m.undo.Request.Account)
+	inverse.MessageID = firstNonEmpty(inverse.MessageID, m.undo.Request.MessageID)
+	inverse.ThreadID = firstNonEmpty(inverse.ThreadID, m.undo.Request.ThreadID)
+	inverse.Undo = true
+
+	current := triageSnapshot{
+		Mailbox:               cloneMailbox(m.mailbox),
+		SelectedMessage:       m.selectedMessage,
+		SelectedThreadMessage: m.selectedThreadMessage,
+	}
+	m.mailbox = cloneMailbox(m.undo.Snapshot.Mailbox)
+	m.selectedMessage = m.undo.Snapshot.SelectedMessage
+	m.selectedThreadMessage = m.undo.Snapshot.SelectedThreadMessage
+	m.undo = nil
+	return m.startTriageActionWithUndo(inverse, false, &current)
 }
 
 func (m Model) triageRequest(kind TriageActionKind, labelID string) TriageActionRequest {
@@ -666,17 +742,27 @@ func (m Model) refreshRequest(kind RefreshKind) RefreshRequest {
 }
 
 func triageProgressSummary(request TriageActionRequest) string {
+	if request.Undo {
+		return "undoing..."
+	}
 	return triageDoneSummary(request)
 }
 
 func triageDoneSummary(request TriageActionRequest) string {
+	if request.Undo {
+		return "undone"
+	}
 	switch request.Kind {
 	case TriageArchive:
 		return "archived"
 	case TriageTrash:
 		return "trashed"
+	case TriageUntrash:
+		return "restored from trash"
 	case TriageSpam:
 		return "marked spam"
+	case TriageUnspam:
+		return "restored from spam"
 	case TriageStar:
 		if request.Add {
 			return "starred"
@@ -696,6 +782,45 @@ func triageDoneSummary(request TriageActionRequest) string {
 	default:
 		return "action complete"
 	}
+}
+
+func inverseTriageRequest(request TriageActionRequest) (TriageActionRequest, bool) {
+	inverse := request
+	inverse.Undo = true
+	switch request.Kind {
+	case TriageArchive:
+		inverse.Kind = TriageLabelAdd
+		inverse.LabelID = "INBOX"
+		inverse.Add = true
+	case TriageTrash:
+		inverse.Kind = TriageUntrash
+	case TriageSpam:
+		inverse.Kind = TriageUnspam
+	case TriageStar:
+		inverse.Add = !request.Add
+	case TriageUnread:
+		inverse.Add = !request.Add
+	case TriageLabelAdd:
+		inverse.Kind = TriageLabelRemove
+	case TriageLabelRemove:
+		inverse.Kind = TriageLabelAdd
+	case TriageMute:
+		inverse.Kind = TriageLabelRemove
+		inverse.LabelID = "MUTED"
+	default:
+		return TriageActionRequest{}, false
+	}
+	return inverse, true
+}
+
+func sameTriageRequest(a, b TriageActionRequest) bool {
+	return a.Kind == b.Kind &&
+		a.Account == b.Account &&
+		a.MessageID == b.MessageID &&
+		a.ThreadID == b.ThreadID &&
+		a.LabelID == b.LabelID &&
+		a.Add == b.Add &&
+		a.Undo == b.Undo
 }
 
 func removeMessageByID(messages []Message, messageID string) []Message {

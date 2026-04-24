@@ -18,7 +18,9 @@ func TestOptimisticActionRepositoryAppliesAndRevertsActionFamilies(t *testing.T)
 	}{
 		{name: "archive", action: OptimisticAction{Kind: OptimisticArchive}, start: []string{"INBOX", "UNREAD"}, want: []string{"UNREAD"}},
 		{name: "trash", action: OptimisticAction{Kind: OptimisticTrash}, start: []string{"INBOX"}, want: []string{"TRASH"}},
+		{name: "untrash", action: OptimisticAction{Kind: OptimisticUntrash}, start: []string{"TRASH"}, want: []string{"INBOX"}},
 		{name: "spam", action: OptimisticAction{Kind: OptimisticSpam}, start: []string{"INBOX"}, want: []string{"SPAM"}},
+		{name: "unspam", action: OptimisticAction{Kind: OptimisticUnspam}, start: []string{"SPAM"}, want: []string{"INBOX"}},
 		{name: "star", action: OptimisticAction{Kind: OptimisticToggleStar, Add: true}, start: []string{"INBOX"}, want: []string{"INBOX", "STARRED"}},
 		{name: "unstar", action: OptimisticAction{Kind: OptimisticToggleStar, Add: false}, start: []string{"INBOX", "STARRED"}, want: []string{"INBOX"}},
 		{name: "unread", action: OptimisticAction{Kind: OptimisticToggleUnread, Add: true}, start: []string{"INBOX"}, want: []string{"INBOX", "UNREAD"}},

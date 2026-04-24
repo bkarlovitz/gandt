@@ -43,7 +43,7 @@ Grounded in `prd.md` sections 9, 10, 13.6, 17, 18, 20, and milestone M2.
   - Revert local state and notify the user if the API call fails.
   - Validation: `go test ./internal/ui ./internal/cache` covers optimistic success and revert-on-error for each action family.
 
-- [ ] **Task 4.7**: Implement undo for the last single action
+- [x] **Task 4.7**: Implement undo for the last single action
   - Track enough inverse operation metadata to undo one action within 30 seconds.
   - Support archive, trash, spam, star, unread, label, and mute undo where Gmail API semantics allow it.
   - Expire undo state cleanly after the time window or after a new action supersedes it.

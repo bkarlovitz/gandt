@@ -86,7 +86,9 @@ type TriageActionKind string
 const (
 	TriageArchive     TriageActionKind = "archive"
 	TriageTrash       TriageActionKind = "trash"
+	TriageUntrash     TriageActionKind = "untrash"
 	TriageSpam        TriageActionKind = "spam"
+	TriageUnspam      TriageActionKind = "unspam"
 	TriageStar        TriageActionKind = "star"
 	TriageUnread      TriageActionKind = "unread"
 	TriageLabelAdd    TriageActionKind = "label-add"
@@ -102,6 +104,7 @@ type TriageActionRequest struct {
 	LabelID   string
 	LabelName string
 	Add       bool
+	Undo      bool
 }
 
 type TriageActionResult struct {

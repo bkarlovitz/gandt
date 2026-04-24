@@ -60,6 +60,19 @@ func TestClientTrashAndUntrashMessagesUseActionEndpoints(t *testing.T) {
 	}
 }
 
+func TestClientUntrashMessageSupportsTrashUndo(t *testing.T) {
+	client := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/gmail/v1/users/me/messages/msg-1/untrash" {
+			t.Fatalf("request = %s %s, want untrash undo endpoint", r.Method, r.URL.Path)
+		}
+		writeJSON(t, w, map[string]any{"id": "msg-1"})
+	})
+
+	if err := client.UntrashMessage(context.Background(), "msg-1"); err != nil {
+		t.Fatalf("untrash undo: %v", err)
+	}
+}
+
 func TestClientModifyThreadBuildsRequest(t *testing.T) {
 	client := testClient(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost || r.URL.Path != "/gmail/v1/users/me/threads/thread-1/modify" {
