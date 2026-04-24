@@ -67,7 +67,7 @@ Grounded in `prd.md` sections 9, 10, 13.6, 17, 18, 20, and milestone M2.
   - Ensure log writes do not block the UI.
   - Validation: `go test ./internal/sync/...` verifies structured log events using a test sink.
 
-- [ ] **Task 4.11**: Verify triage performance targets
+- [x] **Task 4.11**: Verify triage performance targets
   - Load a 5,000-message cached inbox and measure list render below 100ms.
   - Confirm perceived latency for optimistic actions is below 50ms.
   - Confirm background sync does not block navigation during network delay.
@@ -78,3 +78,13 @@ Grounded in `prd.md` sections 9, 10, 13.6, 17, 18, 20, and milestone M2.
   - Confirm Gmail web UI reflects the changes.
   - Confirm delta sync picks up changes made outside `gandt`.
   - Validation: manual QA confirms triaging a real inbox down to zero feels instantaneous.
+
+## Sprint 4 QA Notes
+
+### Task 4.11: Performance verification
+- Date: 2026-04-24T00:08:48-04:00
+- Status: pass for automated local performance checks.
+- Command: `go test ./internal/ui -bench 'Benchmark(MailboxRender5000|TriageOptimisticAction5000)' -benchmem`
+- 5,000-message cached inbox render: `BenchmarkMailboxRender5000-12` = 5,461,987 ns/op (about 5.46 ms), below the 100 ms target.
+- Optimistic action perceived latency: `BenchmarkTriageOptimisticAction5000-12` = 1,893,006 ns/op (about 1.89 ms), below the 50 ms target.
+- Background sync nonblocking navigation: `TestNavigationDoesNotBlockOnBackgroundSyncDelay` passes with a blocking fake sync command while `j` navigation remains below the 50 ms guard.
