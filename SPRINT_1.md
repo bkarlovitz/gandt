@@ -43,7 +43,7 @@ Grounded in `prd.md` sections 5, 6, 12, 15, 16, 20, and milestone M0.
   - Validate enum values for render mode, compose editor, cache depth, and attachment rules.
   - Validation: `go test ./internal/config/...` covers missing file, valid config, invalid enum, and override precedence inside the config file.
 
-- [ ] **Task 1.7**: Add file-only logging
+- [x] **Task 1.7**: Add file-only logging
   - Initialize Charm log to `$XDG_DATA_HOME/gandt/logs/gandt.log`.
   - Keep stdout/stderr available to the TUI except for explicit CLI commands like `--version`.
   - Include startup metadata without logging secrets or message body content.

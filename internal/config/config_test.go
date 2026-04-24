@@ -137,6 +137,41 @@ depth = "metadata"
 	assertEqual(t, cfg.Cache.Defaults.TotalBudgetMB, 2000)
 }
 
+func TestInitFileLoggerCreatesLogFile(t *testing.T) {
+	root := t.TempDir()
+	paths := Paths{
+		ConfigDir: filepath.Join(root, "config"),
+		DataDir:   filepath.Join(root, "data"),
+		LogDir:    filepath.Join(root, "data", "logs"),
+		LogFile:   filepath.Join(root, "data", "logs", "gandt.log"),
+	}
+
+	logFile, err := InitFileLogger(paths, "test-version")
+	if err != nil {
+		t.Fatalf("init logger: %v", err)
+	}
+	if err := logFile.Close(); err != nil {
+		t.Fatalf("close logger: %v", err)
+	}
+
+	info, err := os.Stat(paths.LogFile)
+	if err != nil {
+		t.Fatalf("stat log file: %v", err)
+	}
+	if info.Mode().Perm()&0o077 != 0 {
+		t.Fatalf("log file permissions are too broad: %s", info.Mode().Perm())
+	}
+
+	body, err := os.ReadFile(paths.LogFile)
+	if err != nil {
+		t.Fatalf("read log file: %v", err)
+	}
+	logs := string(body)
+	if !strings.Contains(logs, `msg=startup`) || !strings.Contains(logs, `version=test-version`) {
+		t.Fatalf("startup metadata missing from log: %s", logs)
+	}
+}
+
 func writeConfig(t *testing.T, body string) string {
 	t.Helper()
 

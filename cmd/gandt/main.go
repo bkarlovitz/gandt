@@ -55,6 +55,12 @@ func main() {
 		fmt.Fprintf(os.Stderr, "gandt: load config: %v\n", err)
 		os.Exit(1)
 	}
+	logFile, err := config.InitFileLogger(paths, version)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "gandt: initialize log: %v\n", err)
+		os.Exit(1)
+	}
+	defer logFile.Close()
 
 	program := tea.NewProgram(model{}, tea.WithAltScreen())
 	if _, err := program.Run(); err != nil {
