@@ -19,7 +19,7 @@ Grounded in `prd.md` sections 8, 9, 13.3, 13.5, 13.7, 13.8, 14, 15, 17, 19, 20, 
   - Fall back to the account email if alias fetch fails.
   - Validation: `go test ./internal/gmail ./internal/compose` covers aliases, fallback, and account scoping.
 
-- [ ] **Task 8.3**: Build compose header forms
+- [x] **Task 8.3**: Build compose header forms
   - Use Huh for To, Cc, Bcc, Subject, and From fields.
   - Support new, reply, reply-all, and forward prefill rules.
   - Keep forms usable in narrow terminal layouts.
