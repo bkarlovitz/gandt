@@ -245,7 +245,7 @@ normalized to the email address, `domain` values are lowercase without a leading
 `@`, and `label` values match Gmail label IDs. Sync may fetch excluded message
 metadata transiently to decide whether a message matches, but excluded message
 bodies are not written to `messages`. Confirmed exclusions purge already cached
-matching message rows.
+matching message rows and referenced local attachment files.
 
 Purge planning is non-destructive. `:cache-purge` supports `--account`,
 `--label`, `--older-than`, `--from`, and `--dry-run`; it reports candidate

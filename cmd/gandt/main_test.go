@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -120,6 +121,27 @@ func TestCachePolicyStorePersistsRows(t *testing.T) {
 	}
 	if _, err := cache.NewSyncPolicyRepository(db).Get(ctx, account.ID, "INBOX"); !errors.Is(err, cache.ErrSyncPolicyNotFound) {
 		t.Fatalf("get reset policy error = %v, want ErrSyncPolicyNotFound", err)
+	}
+}
+
+func TestCachePurgeStoreRejectsUnknownAccount(t *testing.T) {
+	ctx := context.Background()
+	paths := config.Paths{DataDir: t.TempDir()}
+	db, err := cache.Open(ctx, paths)
+	if err != nil {
+		t.Fatalf("open cache: %v", err)
+	}
+	if err := cache.Migrate(ctx, db); err != nil {
+		t.Fatalf("migrate cache: %v", err)
+	}
+	seedMainTestAccount(t, db)
+	if err := db.Close(); err != nil {
+		t.Fatalf("close cache: %v", err)
+	}
+
+	_, err = buildCachePurgeStore(paths).PlanCachePurge(ui.CachePurgeRequest{Account: "missing@example.com", DryRun: true})
+	if err == nil || !strings.Contains(err.Error(), `account "missing@example.com" not found`) {
+		t.Fatalf("plan purge error = %v, want unknown account error", err)
 	}
 }
 

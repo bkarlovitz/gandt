@@ -463,8 +463,10 @@ func buildCacheExclusionStore(paths config.Paths) ui.CacheExclusionStore {
 				return ui.CacheExclusionResult{}, err
 			}
 			return ui.CacheExclusionResult{
-				Preview:         uiCacheExclusionPreview(request, result.Plan),
-				DeletedMessages: result.DeletedMessages,
+				Preview:                uiCacheExclusionPreview(request, result.Plan),
+				DeletedMessages:        result.DeletedMessages,
+				DeletedAttachmentFiles: result.DeletedAttachmentFiles,
+				AttachmentDeleteErrors: result.AttachmentDeleteErrors,
 			}, nil
 		},
 	}
@@ -479,9 +481,12 @@ func cacheExclusionAccount(ctx context.Context, db *sqlx.DB, accountName string)
 		return cache.Account{}, fmt.Errorf("no accounts configured")
 	}
 	for _, account := range accounts {
-		if account.Email == accountName {
+		if strings.EqualFold(account.Email, accountName) || account.ID == accountName {
 			return account, nil
 		}
+	}
+	if accountName != "" {
+		return cache.Account{}, fmt.Errorf("account %q not found", accountName)
 	}
 	return accounts[0], nil
 }
@@ -508,7 +513,11 @@ func buildCachePurgeStore(paths config.Paths) ui.CachePurgeStore {
 			if err := cache.Migrate(ctx, db); err != nil {
 				return ui.CachePurgePreview{}, err
 			}
-			plan, err := cache.NewCachePurgeService(db).Plan(ctx, cachePurgeFilter(ctx, db, request), time.Now().UTC())
+			filter, err := cachePurgeFilter(ctx, db, request)
+			if err != nil {
+				return ui.CachePurgePreview{}, err
+			}
+			plan, err := cache.NewCachePurgeService(db).Plan(ctx, filter, time.Now().UTC())
 			if err != nil {
 				return ui.CachePurgePreview{}, err
 			}
@@ -524,7 +533,11 @@ func buildCachePurgeStore(paths config.Paths) ui.CachePurgeStore {
 			if err := cache.Migrate(ctx, db); err != nil {
 				return ui.CachePurgeResult{}, err
 			}
-			result, err := cache.NewCachePurgeService(db).Execute(ctx, cachePurgeFilter(ctx, db, request), time.Now().UTC())
+			filter, err := cachePurgeFilter(ctx, db, request)
+			if err != nil {
+				return ui.CachePurgeResult{}, err
+			}
+			result, err := cache.NewCachePurgeService(db).Execute(ctx, filter, time.Now().UTC())
 			if err != nil {
 				return ui.CachePurgeResult{}, err
 			}
@@ -550,12 +563,14 @@ func buildCachePurgeStore(paths config.Paths) ui.CachePurgeStore {
 	}
 }
 
-func cachePurgeFilter(ctx context.Context, db *sqlx.DB, request ui.CachePurgeRequest) cache.CachePurgeFilter {
+func cachePurgeFilter(ctx context.Context, db *sqlx.DB, request ui.CachePurgeRequest) (cache.CachePurgeFilter, error) {
 	accountID := ""
 	if request.Account != "" {
-		if account, err := cacheExclusionAccount(ctx, db, request.Account); err == nil {
-			accountID = account.ID
+		account, err := cacheExclusionAccount(ctx, db, request.Account)
+		if err != nil {
+			return cache.CachePurgeFilter{}, err
 		}
+		accountID = account.ID
 	}
 	return cache.CachePurgeFilter{
 		AccountID:     accountID,
@@ -563,7 +578,7 @@ func cachePurgeFilter(ctx context.Context, db *sqlx.DB, request ui.CachePurgeReq
 		OlderThanDays: request.OlderThanDays,
 		From:          request.From,
 		DryRun:        request.DryRun,
-	}
+	}, nil
 }
 
 func uiCachePurgePreview(request ui.CachePurgeRequest, plan cache.CachePurgePlan) ui.CachePurgePreview {

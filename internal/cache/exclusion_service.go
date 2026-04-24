@@ -33,8 +33,10 @@ type CacheExclusionPurgePlan struct {
 }
 
 type CacheExclusionPurgeResult struct {
-	Plan            CacheExclusionPurgePlan
-	DeletedMessages int
+	Plan                   CacheExclusionPurgePlan
+	DeletedMessages        int
+	DeletedAttachmentFiles int
+	AttachmentDeleteErrors []string
 }
 
 func NewCacheExclusionService(db *sqlx.DB) CacheExclusionService {
@@ -124,19 +126,22 @@ func (s CacheExclusionService) ConfirmPurge(ctx context.Context, exclusion Cache
 		return CacheExclusionPurgeResult{Plan: plan}, nil
 	}
 
-	query, args, err := sqlx.In("DELETE FROM messages WHERE account_id = ? AND id IN (?)", normalized.AccountID, messageIDs(plan.MessageKeys))
+	purged, err := NewCachePurgeService(s.db).ExecutePlan(ctx, CachePurgePlan{
+		MessageCount:    plan.MessageCount,
+		BodyCount:       plan.BodyCount,
+		AttachmentCount: plan.AttachmentCount,
+		EstimatedBytes:  plan.EstimatedBytes,
+		MessageKeys:     plan.MessageKeys,
+	})
 	if err != nil {
 		return CacheExclusionPurgeResult{}, err
 	}
-	result, err := s.db.ExecContext(ctx, query, args...)
-	if err != nil {
-		return CacheExclusionPurgeResult{}, fmt.Errorf("purge cache exclusion matches: %w", err)
-	}
-	affected, err := result.RowsAffected()
-	if err != nil {
-		return CacheExclusionPurgeResult{}, fmt.Errorf("read cache exclusion purge count: %w", err)
-	}
-	return CacheExclusionPurgeResult{Plan: plan, DeletedMessages: int(affected)}, nil
+	return CacheExclusionPurgeResult{
+		Plan:                   plan,
+		DeletedMessages:        purged.DeletedMessages,
+		DeletedAttachmentFiles: purged.DeletedAttachmentFiles,
+		AttachmentDeleteErrors: purged.AttachmentDeleteErrors,
+	}, nil
 }
 
 func NormalizeCacheExclusion(exclusion CacheExclusion) (CacheExclusion, error) {

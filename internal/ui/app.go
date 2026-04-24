@@ -382,7 +382,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.toastMessage = m.statusMessage
 			return m, nil
 		}
-		m.statusMessage = fmt.Sprintf("cache exclusion saved; purged %d messages", msg.Result.DeletedMessages)
+		m.statusMessage = fmt.Sprintf("cache exclusion saved; purged %d messages, %d attachment files", msg.Result.DeletedMessages, msg.Result.DeletedAttachmentFiles)
+		if len(msg.Result.AttachmentDeleteErrors) > 0 {
+			m.statusMessage += fmt.Sprintf("; %d attachment cleanup errors", len(msg.Result.AttachmentDeleteErrors))
+		}
 		m.toastMessage = m.statusMessage
 	case cachePurgePreviewDoneMsg:
 		m.loadingCachePurge = false

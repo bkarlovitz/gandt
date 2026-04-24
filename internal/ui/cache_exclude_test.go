@@ -9,7 +9,7 @@ import (
 func TestCacheExcludeCommandPreviewAndConfirm(t *testing.T) {
 	store := &recordingCacheExclusionStore{
 		preview: CacheExclusionPreview{MessageCount: 2, BodyCount: 1, AttachmentCount: 1, EstimatedBytes: 2048},
-		result:  CacheExclusionResult{DeletedMessages: 2},
+		result:  CacheExclusionResult{DeletedMessages: 2, DeletedAttachmentFiles: 1},
 	}
 	model := New(config.Default(), WithMailbox(RealAccountMailbox("me@example.com", nil)), WithCacheExclusionStore(store))
 
@@ -38,7 +38,7 @@ func TestCacheExcludeCommandPreviewAndConfirm(t *testing.T) {
 	if len(store.confirmed) != 1 || store.confirmed[0].Account != "me@example.com" {
 		t.Fatalf("confirmed requests = %#v, want current account confirmation", store.confirmed)
 	}
-	if model.pendingCacheExclusion != nil || model.statusMessage != "cache exclusion saved; purged 2 messages" {
+	if model.pendingCacheExclusion != nil || model.statusMessage != "cache exclusion saved; purged 2 messages, 1 attachment files" {
 		t.Fatalf("pending/status = %#v/%q, want success", model.pendingCacheExclusion, model.statusMessage)
 	}
 }

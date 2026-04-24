@@ -15,8 +15,10 @@ type CacheExclusionPreview struct {
 }
 
 type CacheExclusionResult struct {
-	Preview         CacheExclusionPreview
-	DeletedMessages int
+	Preview                CacheExclusionPreview
+	DeletedMessages        int
+	DeletedAttachmentFiles int
+	AttachmentDeleteErrors []string
 }
 
 type CacheExclusionStore interface {

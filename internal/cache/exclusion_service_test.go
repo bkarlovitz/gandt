@@ -3,6 +3,8 @@ package cache
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -12,7 +14,7 @@ import (
 func TestCacheExclusionServicePreviewMatchesSenderDomainAndLabel(t *testing.T) {
 	ctx := context.Background()
 	db := migratedTestDB(t)
-	accountID := seedExclusionServiceRows(t, db)
+	accountID, _ := seedExclusionServiceRows(t, db)
 	service := NewCacheExclusionService(db)
 
 	senderPlan, err := service.PreviewPurge(ctx, CacheExclusion{AccountID: accountID, MatchType: "sender", MatchValue: "Ada <ada@example.com>"})
@@ -43,20 +45,23 @@ func TestCacheExclusionServicePreviewMatchesSenderDomainAndLabel(t *testing.T) {
 func TestCacheExclusionServiceConfirmPurgeDeletesMatchingRows(t *testing.T) {
 	ctx := context.Background()
 	db := migratedTestDB(t)
-	accountID := seedExclusionServiceRows(t, db)
+	accountID, attachmentPath := seedExclusionServiceRows(t, db)
 	service := NewCacheExclusionService(db)
 
 	result, err := service.ConfirmPurge(ctx, CacheExclusion{AccountID: accountID, MatchType: "sender", MatchValue: "ada@example.com"})
 	if err != nil {
 		t.Fatalf("confirm purge: %v", err)
 	}
-	if result.DeletedMessages != 1 || result.Plan.MessageCount != 1 {
-		t.Fatalf("purge result = %#v, want one deleted message", result)
+	if result.DeletedMessages != 1 || result.DeletedAttachmentFiles != 1 || result.Plan.MessageCount != 1 {
+		t.Fatalf("purge result = %#v, want one deleted message and attachment file", result)
 	}
 	if _, err := NewMessageRepository(db).Get(ctx, accountID, "ada-msg"); !errors.Is(err, ErrMessageNotFound) {
 		t.Fatalf("get purged message error = %v, want ErrMessageNotFound", err)
 	}
 	assertRowCount(t, db, "attachments", accountID, 0)
+	if _, err := os.Stat(attachmentPath); !os.IsNotExist(err) {
+		t.Fatalf("attachment stat error = %v, want removed file", err)
+	}
 
 	listed, err := NewCacheExclusionRepository(db).List(ctx, accountID)
 	if err != nil {
@@ -74,7 +79,7 @@ func TestCacheExclusionServiceRejectsInvalidExclusion(t *testing.T) {
 	}
 }
 
-func seedExclusionServiceRows(t *testing.T, db *sqlx.DB) string {
+func seedExclusionServiceRows(t *testing.T, db *sqlx.DB) (string, string) {
 	t.Helper()
 
 	ctx := context.Background()
@@ -130,8 +135,12 @@ func seedExclusionServiceRows(t *testing.T, db *sqlx.DB) string {
 			t.Fatalf("upsert label mapping %s: %v", fixture.id, err)
 		}
 	}
-	if err := NewAttachmentRepository(db).Upsert(ctx, Attachment{AccountID: account.ID, MessageID: "ada-msg", PartID: "1", Filename: "ada.pdf", SizeBytes: 50}); err != nil {
+	attachmentPath := filepath.Join(t.TempDir(), "ada.pdf")
+	if err := os.WriteFile(attachmentPath, []byte("attachment"), 0o600); err != nil {
+		t.Fatalf("write attachment: %v", err)
+	}
+	if err := NewAttachmentRepository(db).Upsert(ctx, Attachment{AccountID: account.ID, MessageID: "ada-msg", PartID: "1", Filename: "ada.pdf", SizeBytes: 50, LocalPath: attachmentPath}); err != nil {
 		t.Fatalf("upsert attachment: %v", err)
 	}
-	return account.ID
+	return account.ID, attachmentPath
 }

@@ -131,8 +131,9 @@ Commands:
 
 Privacy controls are policy and exclusion based. Excluded senders, domains, and
 labels are never persisted as bodies; already cached matching rows can be purged
-after confirmation. Retention sweep removes messages only when they are outside
-the retention window for every label on the message.
+after confirmation, including referenced local attachment files. Retention sweep
+removes messages only when they are outside the retention window for every label
+on the message.
 
 At-rest encryption is not a v1 goal. Message bodies in SQLite and downloaded
 attachments are unencrypted local files. Users who need at-rest protection should
