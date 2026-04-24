@@ -37,7 +37,7 @@ Grounded in `prd.md` sections 7, 8, 9, 10, 11, 16, 19, 20, and milestone M1.
   - Seed the default policy from PRD section 11 when an account is created.
   - Validation: `go test ./internal/cache/...` covers seeded defaults, policy lookup fallback, and label upserts.
 
-- [ ] **Task 2.6**: Implement keyring-backed secret storage
+- [x] **Task 2.6**: Implement keyring-backed secret storage
   - Add `internal/auth/keyring.go` for client credentials and per-account OAuth tokens.
   - Use service name `com.<owner>.gandt` until the final owner is known.
   - Ensure logs and errors never include token values or client secrets.
