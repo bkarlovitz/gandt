@@ -12,7 +12,8 @@ type ComposeModeState struct {
 	Kind           compose.ComposeKind
 	Headers        compose.Headers
 	Body           string
-	Attachments    []string
+	Attachments    []compose.Attachment
+	AttachInput    string
 	SendStatus     compose.SendStatus
 	AutosaveStatus string
 	Error          string
@@ -75,6 +76,36 @@ func (m Model) handleComposeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.statusMessage = "discard canceled"
 		}
 		return m, nil
+	}
+	if m.compose.AttachPrompt {
+		switch msg.Type {
+		case tea.KeyEnter:
+			attachment, err := compose.AddAttachmentFromPath(m.compose.AttachInput, 0)
+			if err != nil {
+				m.compose.Error = err.Error()
+				m.statusMessage = "attach failed: " + err.Error()
+				return m, nil
+			}
+			m.compose.Attachments = append(m.compose.Attachments, attachment)
+			m.compose.AttachInput = ""
+			m.compose.AttachPrompt = false
+			m.compose.Error = ""
+			m.statusMessage = "attached " + attachment.Filename
+			return m, nil
+		case tea.KeyEsc:
+			m.compose.AttachInput = ""
+			m.compose.AttachPrompt = false
+			m.statusMessage = "attach canceled"
+			return m, nil
+		case tea.KeyBackspace:
+			if len(m.compose.AttachInput) > 0 {
+				m.compose.AttachInput = m.compose.AttachInput[:len(m.compose.AttachInput)-1]
+			}
+			return m, nil
+		case tea.KeyRunes:
+			m.compose.AttachInput += string(msg.Runes)
+			return m, nil
+		}
 	}
 	switch msg.Type {
 	case tea.KeyCtrlD:
@@ -139,10 +170,10 @@ func (m Model) renderComposeMode() string {
 		"Autosave: " + m.compose.AutosaveStatus,
 	}
 	if len(m.compose.Attachments) > 0 {
-		lines = append(lines, "Attachments: "+strings.Join(m.compose.Attachments, ", "))
+		lines = append(lines, "Attachments: "+renderComposeAttachments(m.compose.Attachments))
 	}
 	if m.compose.AttachPrompt {
-		lines = append(lines, "Attach: path input")
+		lines = append(lines, "Attach: "+m.compose.AttachInput)
 	}
 	if m.compose.Error != "" {
 		lines = append(lines, "Error: "+m.compose.Error)
@@ -154,4 +185,12 @@ func (m Model) renderComposeMode() string {
 		lines = append(lines, "", m.compose.Body)
 	}
 	return strings.Join(lines, "\n")
+}
+
+func renderComposeAttachments(attachments []compose.Attachment) string {
+	parts := make([]string, 0, len(attachments))
+	for _, attachment := range attachments {
+		parts = append(parts, fmt.Sprintf("%s (%d bytes, %s)", attachment.Filename, attachment.SizeBytes, attachment.MimeType))
+	}
+	return strings.Join(parts, ", ")
 }

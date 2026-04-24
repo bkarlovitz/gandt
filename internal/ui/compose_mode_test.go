@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -68,5 +70,42 @@ func TestComposeModeSaveSendDiscardAndAttach(t *testing.T) {
 	got = updated.(Model)
 	if got.mode != ModeNormal || got.statusMessage != "compose discarded" {
 		t.Fatalf("discard state mode=%v msg=%q", got.mode, got.statusMessage)
+	}
+}
+
+func TestComposeModeAttachmentPathInput(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "note.txt")
+	if err := os.WriteFile(path, []byte("hello"), 0o600); err != nil {
+		t.Fatalf("write attachment: %v", err)
+	}
+	model := New(config.Default())
+	updated, _ := model.Update(keyMsg("c"))
+	model = updated.(Model)
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyCtrlT})
+	model = updated.(Model)
+	for _, r := range path {
+		updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		model = updated.(Model)
+	}
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(Model)
+
+	if len(model.compose.Attachments) != 1 || model.compose.Attachments[0].Filename != "note.txt" {
+		t.Fatalf("attachments = %#v", model.compose.Attachments)
+	}
+	if !strings.Contains(model.View(), "note.txt") || !strings.Contains(model.View(), "bytes") {
+		t.Fatalf("view = %q, want attachment metadata", model.View())
+	}
+
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyCtrlT})
+	model = updated.(Model)
+	for _, r := range filepath.Join(filepath.Dir(path), "missing.txt") {
+		updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		model = updated.(Model)
+	}
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(Model)
+	if model.compose.Error == "" || !strings.Contains(model.statusMessage, "attach failed") {
+		t.Fatalf("error=%q status=%q", model.compose.Error, model.statusMessage)
 	}
 }

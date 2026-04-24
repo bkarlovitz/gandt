@@ -79,7 +79,7 @@ Grounded in `prd.md` sections 8, 9, 13.3, 13.5, 13.7, 13.8, 14, 15, 17, 19, 20, 
   - Show an error when the platform opener is unavailable.
   - Validation: `go test ./internal/compose ./internal/ui` uses fake platform openers for success, missing opener, and lazy fetch behavior.
 
-- [ ] **Task 8.13**: Implement attachment send picker
+- [x] **Task 8.13**: Implement attachment send picker
   - Add `Ctrl+T` attachment selection using a file picker component or path input.
   - Validate file existence, size, and readability before adding it to the message.
   - Include selected attachment size/type in compose UI.
