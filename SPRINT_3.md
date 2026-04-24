@@ -13,7 +13,7 @@ Grounded in `prd.md` sections 7, 9, 10, 12, 13.2, 13.3, 14, 17, 18, 20, and mile
   - Keep wrappers interface-based for unit tests and later sync workers.
   - Validation: `go test ./internal/gmail/...` covers request parameters, pagination, metadata parsing, full body parsing, and error mapping with HTTP fixtures.
 
-- [ ] **Task 3.2**: Implement message, thread, attachment metadata, and label mapping repositories
+- [x] **Task 3.2**: Implement message, thread, attachment metadata, and label mapping repositories
   - Add upsert/list/get functions for `threads`, `messages`, `message_labels`, and `attachments`.
   - Preserve Gmail IDs and account IDs in every primary key.
   - Keep JSON fields encoded through typed helpers instead of ad hoc string assembly.
