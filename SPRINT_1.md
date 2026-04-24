@@ -61,7 +61,7 @@ Grounded in `prd.md` sections 5, 6, 12, 15, 16, 20, and milestone M0.
   - Respect `NO_COLOR` by disabling color styles.
   - Validation: `go test ./internal/ui/...` includes golden snapshots for wide, medium, and narrow layouts.
 
-- [ ] **Task 1.10**: Add keyboard navigation for dummy data
+- [x] **Task 1.10**: Add keyboard navigation for dummy data
   - Implement `j`/`k`, arrow keys, `g`/`G`, `Enter`, `Tab`, `?`, and `q` against the fake mailbox.
   - Keep keybindings centralized and ready for config overrides.
   - Render the contextual help footer from the keybinding map.

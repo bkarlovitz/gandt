@@ -144,7 +144,7 @@ func (m Model) renderMailbox() string {
 			[]int{listWidth, readerWidth},
 		)
 	default:
-		if m.readerOpen {
+		if m.readerOpen || m.focus == PaneReader {
 			body = strings.Join(m.renderReader(width, bodyHeight), "\n")
 		} else {
 			body = strings.Join(m.renderMessageList(width, bodyHeight), "\n")

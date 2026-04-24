@@ -45,9 +45,77 @@ func TestModelUpdateResize(t *testing.T) {
 	}
 }
 
+func TestModelNavigationUpdatesMessageSelection(t *testing.T) {
+	model := New(config.Default())
+
+	updated, _ := model.Update(keyMsg("j"))
+	got := updated.(Model)
+	if got.selectedMessage != 1 {
+		t.Fatalf("selected message = %d, want 1", got.selectedMessage)
+	}
+
+	updated, _ = got.Update(keyMsg("k"))
+	got = updated.(Model)
+	if got.selectedMessage != 0 {
+		t.Fatalf("selected message = %d, want 0", got.selectedMessage)
+	}
+
+	updated, _ = got.Update(keyMsg("G"))
+	got = updated.(Model)
+	if got.selectedMessage != len(got.mailbox.Messages)-1 {
+		t.Fatalf("selected message = %d, want last", got.selectedMessage)
+	}
+
+	updated, _ = got.Update(keyMsg("g"))
+	got = updated.(Model)
+	if got.selectedMessage != 0 {
+		t.Fatalf("selected message = %d, want 0", got.selectedMessage)
+	}
+}
+
+func TestModelNavigationUpdatesReaderState(t *testing.T) {
+	model := New(config.Default())
+
+	updated, _ := model.Update(keyMsg("enter"))
+	got := updated.(Model)
+
+	if !got.readerOpen || got.focus != PaneReader {
+		t.Fatalf("readerOpen=%v focus=%v, want reader open and focused", got.readerOpen, got.focus)
+	}
+}
+
+func TestModelNavigationUpdatesLabelSelection(t *testing.T) {
+	model := New(config.Default())
+	updated, _ := model.Update(tea.WindowSizeMsg{Width: 132, Height: 16})
+	model = updated.(Model)
+
+	updated, _ = model.Update(keyMsg("tab"))
+	model = updated.(Model)
+	updated, _ = model.Update(keyMsg("tab"))
+	model = updated.(Model)
+	if model.focus != PaneLabels {
+		t.Fatalf("focus=%v, want labels", model.focus)
+	}
+
+	updated, _ = model.Update(keyMsg("j"))
+	got := updated.(Model)
+	if got.selectedLabel != 1 {
+		t.Fatalf("selected label = %d, want 1", got.selectedLabel)
+	}
+}
+
 func keyMsg(value string) tea.KeyMsg {
-	if value == "ctrl+c" {
+	switch value {
+	case "ctrl+c":
 		return tea.KeyMsg{Type: tea.KeyCtrlC}
+	case "up":
+		return tea.KeyMsg{Type: tea.KeyUp}
+	case "down":
+		return tea.KeyMsg{Type: tea.KeyDown}
+	case "enter":
+		return tea.KeyMsg{Type: tea.KeyEnter}
+	case "tab":
+		return tea.KeyMsg{Type: tea.KeyTab}
 	}
 	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(value)}
 }

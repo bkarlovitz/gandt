@@ -56,7 +56,7 @@ Labels                 | Inbox                                      | Reader
   travel               |                                            |
   work            12   |                                            | ...
 ------------------------------------------------------------------------------------------------------------------------------------
-?: help   /: search   c: compose   : command   q/esc: quit`
+j/k: nav   enter: open   tab: pane   ?: help   q: quit`
 
 const mediumSnapshot = `G&T | work: me@work.com | fake inbox | no network
 ----------------------------------------------------------------------------------------------------
@@ -71,7 +71,7 @@ Inbox                                  | Reader
   The nightly Linux build is green ... | 2. Hiring pipeline
                                        | ...
 ----------------------------------------------------------------------------------------------------
-?: help   /: search   c: compose   : command   q/esc: quit`
+j/k: nav   enter: open   tab: pane   ?: help   q: quit`
 
 const narrowSnapshot = `G&T | work: me@work.com | fake inbox | no network
 ------------------------------------------------------------------------
@@ -85,4 +85,4 @@ Inbox
   Delta Alerts  8:31 Build pipeline recovered [4]
   The nightly Linux build is green again after retry.
 ------------------------------------------------------------------------
-?: help   /: search   c: compose   : command   q/esc: quit`
+j/k: nav   enter: open   tab: pane   ?: help   q: quit`
