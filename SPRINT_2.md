@@ -13,7 +13,7 @@ Grounded in `prd.md` sections 7, 8, 9, 10, 11, 16, 19, 20, and milestone M1.
   - Keep all database access behind repository functions.
   - Validation: `go test ./internal/cache/...` verifies WAL mode, foreign keys, and open/close behavior with a temp database.
 
-- [ ] **Task 2.2**: Add schema versioning and migrations
+- [x] **Task 2.2**: Add schema versioning and migrations
   - Create `internal/cache/schema.sql` with `schema_version` and all v1 public tables from the PRD.
   - Include FTS5 table and triggers, `message_annotations`, `sync_policies`, and `cache_exclusions`.
   - Add migration code that applies schema v1 exactly once.
