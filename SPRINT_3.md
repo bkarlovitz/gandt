@@ -43,7 +43,7 @@ Grounded in `prd.md` sections 7, 9, 10, 12, 13.2, 13.3, 14, 17, 18, 20, and mile
   - Keep raw HTML nullable and persist only when policy depth allows it.
   - Validation: `go test ./internal/gmail ./internal/render` covers plain-only, html-only, multipart alternative, nested multipart, and attachment cases.
 
-- [ ] **Task 3.7**: Implement terminal body rendering
+- [x] **Task 3.7**: Implement terminal body rendering
   - Add `internal/render/html.go`, `quote.go`, and `attachments.go`.
   - Convert HTML to text with link footnotes, image placeholders, and basic table handling.
   - Dim or collapse quoted sections over the configured threshold.
