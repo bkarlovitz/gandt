@@ -73,8 +73,16 @@ Grounded in `prd.md` sections 5, 6, 12, 15, 16, 20, and milestone M0.
   - Keep user-facing claims aligned with `prd.md`.
   - Validation: manual review confirms commands in README match `Makefile` targets and current code.
 
-- [ ] **Task 1.12**: Verify the M0 demo path
+- [x] **Task 1.12**: Verify the M0 demo path
   - Start `gandt`, show the fake inbox, navigate messages, open help, resize the terminal, and quit cleanly.
   - Confirm no network or Gmail credentials are required for the demo.
   - Capture any terminal rendering defects as follow-up issues before moving to Gmail integration.
   - Validation: manual QA checklist passes on at least one macOS or Linux terminal.
+
+## M0 QA Notes
+
+- Date: 2026-04-23
+- Platform: Linux PTY
+- Checks: launched `go run ./cmd/gandt` with temporary XDG config/data dirs; verified wide fake inbox render, narrow render at 72 columns, `j` message navigation, `?` help overlay, and clean `q` quit.
+- Network/auth: current runtime code under `cmd/` and `internal/` contains no Gmail, OAuth, keyring, or HTTP client calls; no credentials are required for the fake-inbox demo.
+- Rendering follow-ups: none found for Sprint 1.
