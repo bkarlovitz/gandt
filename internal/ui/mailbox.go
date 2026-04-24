@@ -216,15 +216,20 @@ func (m Model) renderMailbox() string {
 	if m.statusMessage != "" {
 		header = fmt.Sprintf("%s | %s", header, m.statusMessage)
 	}
+	styles := m.activeStyles()
+	separator := strings.Repeat("-", width)
+	if !styles.NoColor {
+		separator = styles.Accent.Render(separator)
+	}
 
 	lines := []string{
-		fit(header, width),
-		strings.Repeat("-", width),
+		fit(styles.Header.Render(header), width),
+		separator,
 		body,
-		strings.Repeat("-", width),
+		separator,
 	}
 	if m.toastMessage != "" {
-		lines = append(lines, fit(m.toastMessage, width), strings.Repeat("-", width))
+		lines = append(lines, fit(m.toastMessage, width), separator)
 	}
 	lines = append(lines, fit(m.keys.Footer(), width))
 	return trimRightLines(strings.Join(lines, "\n"))
@@ -464,8 +469,9 @@ func depthIndicator(depth string) string {
 
 func (m Model) renderSelectableLine(text string, width int, selected bool) string {
 	line := fit(text, width)
-	if selected && !m.styles.NoColor {
-		return m.styles.Selected.Width(width).Render(line)
+	styles := m.activeStyles()
+	if selected && !styles.NoColor {
+		return styles.Selected.Width(width).Render(line)
 	}
 	return line
 }

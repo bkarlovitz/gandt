@@ -137,6 +137,8 @@ func buildAccountAdder(paths config.Paths, cfg config.Config) ui.AccountAdder {
 		}
 		return ui.AccountAddResult{
 			Account:         account.Email,
+			DisplayName:     account.DisplayName,
+			Color:           configuredAccountColor(cfg, account),
 			Labels:          uiLabels(ctx, db, cfg, account, labels),
 			MessagesByLabel: messagesByLabel,
 		}, nil
@@ -921,13 +923,22 @@ func loadInitialAccounts(paths config.Paths, cfg config.Config) ([]ui.AccountSta
 		states = append(states, ui.AccountState{
 			Account:     account.Email,
 			DisplayName: account.DisplayName,
-			Color:       account.Color,
+			Color:       configuredAccountColor(cfg, account),
 			SyncStatus:  status,
 			Unread:      unread,
 			Mailbox:     ui.RealAccountMailbox(account.Email, labelsForUI, messagesByLabel),
 		})
 	}
 	return states, true
+}
+
+func configuredAccountColor(cfg config.Config, account cache.Account) string {
+	for _, key := range []string{account.Email, account.ID, account.DisplayName} {
+		if entry, ok := cfg.Accounts[key]; ok && strings.TrimSpace(entry.Color) != "" {
+			return strings.TrimSpace(entry.Color)
+		}
+	}
+	return account.Color
 }
 
 func buildThreadLoader(paths config.Paths, cfg config.Config) ui.ThreadLoader {

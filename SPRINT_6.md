@@ -31,7 +31,7 @@ Grounded in `prd.md` sections 1, 3, 4, 7, 8, 10, 12, 13.1, 13.6, 16, 20, and mil
   - Make switching update the active account in under 50ms from cached state.
   - Validation: `go test ./internal/ui/...` simulates switcher navigation and measures cached switch path.
 
-- [ ] **Task 6.5**: Apply per-account color and theme accents
+- [x] **Task 6.5**: Apply per-account color and theme accents
   - Tint the frame or selected accent with the active account color.
   - Allow account color override through config.
   - Preserve `NO_COLOR` behavior.

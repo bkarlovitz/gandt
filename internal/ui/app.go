@@ -941,6 +941,13 @@ func (m *Model) applyActiveAccount() {
 	m.statusMessage = "switched to " + m.mailbox.Account
 }
 
+func (m Model) activeStyles() Styles {
+	if m.activeAccount >= 0 && m.activeAccount < len(m.accounts) {
+		return m.styles.WithAccent(m.accounts[m.activeAccount].Color)
+	}
+	return m.styles
+}
+
 func (m *Model) removeAccountState(account string) {
 	next := m.accounts[:0]
 	for _, state := range m.accounts {
