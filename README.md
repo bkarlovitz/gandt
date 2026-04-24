@@ -178,6 +178,8 @@ Each account has independent cache policies, colors, labels, sync state, and Gma
 - Cache corruption: quit G&T and inspect or remove `cache.db`; use `:cache-wipe` when the UI is still recoverable.
 - Logs: `$XDG_DATA_HOME/gandt/logs/gandt.log`.
 
+See `docs/troubleshooting.md` for operational recovery steps.
+
 ## Known V1 Limitations
 
 - HTML rendering is best effort; newsletters and complex layouts may need `B` to open Gmail web UI.

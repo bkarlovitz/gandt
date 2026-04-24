@@ -49,7 +49,7 @@ Grounded in `prd.md` sections 5, 12, 13.10, 14, 15, 16, 17, 18, 19, 20, 21 M6, 2
   - Keep naming conventions clear: display `G&T`, binary/config paths `gandt`.
   - Validation: manual review confirms every documented command exists and out-of-scope claims match `prd.md`.
 
-- [ ] **Task 9.8**: Add operational troubleshooting docs
+- [x] **Task 9.8**: Add operational troubleshooting docs
   - Document log file location, cache inspection with `sqlite3`, keychain troubleshooting, OAuth re-authentication, and cache purge/wipe recovery.
   - Include privacy notes for unencrypted message cache and local-only logs.
   - Avoid suggesting unsupported daemon, plugin, telemetry, or non-Gmail workflows.
