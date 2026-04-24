@@ -89,6 +89,37 @@ func TestReaderAppliesLoadedThread(t *testing.T) {
 	}
 }
 
+func TestReaderSelectsLoadedThreadMessage(t *testing.T) {
+	model := New(config.Default(),
+		WithMailbox(readerMailboxWithMessages([]Message{
+			readerMessage("message-2", "thread-1", nil),
+		})),
+		WithThreadLoader(ThreadLoaderFunc(func(ThreadLoadRequest) (ThreadLoadResult, error) {
+			return ThreadLoadResult{
+				MessageID:  "message-2",
+				ThreadID:   "thread-1",
+				CacheState: "cached",
+				ThreadMessages: []ThreadMessage{
+					{ID: "message-1", From: "Ada", Body: []string{"older"}},
+					{ID: "message-2", From: "Bob", Body: []string{"selected"}},
+				},
+			}, nil
+		})),
+	)
+
+	updated, cmd := model.Update(keyMsg("enter"))
+	got := updated.(Model)
+	updated, _ = got.Update(cmd())
+	got = updated.(Model)
+
+	if got.selectedThreadMessage != 1 {
+		t.Fatalf("selected thread message = %d, want loaded message index", got.selectedThreadMessage)
+	}
+	if !strings.Contains(got.View(), "selected") {
+		t.Fatalf("view did not open selected loaded message:\n%s", got.View())
+	}
+}
+
 func TestReaderLoadError(t *testing.T) {
 	model := New(config.Default(),
 		WithMailbox(readerMailbox(nil)),

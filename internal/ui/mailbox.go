@@ -44,6 +44,7 @@ type Message struct {
 }
 
 type ThreadMessage struct {
+	ID          string
 	From        string
 	Address     string
 	Date        string

@@ -2,12 +2,13 @@
 
 G&T is a terminal-native Gmail client for keyboard-driven inbox triage. The binary is named `gandt`; the ampersand is display-only and is not used in paths, commands, or identifiers.
 
-This repository has completed the Sprint 2 implementation for the M1
-single-account foundation: the app can configure bring-your-own Google OAuth
-client credentials, run a loopback OAuth account-add flow, initialize the
-SQLite cache, and render cached account and label state. The real Gmail
-single-account bootstrap demo still requires manual QA with a test Gmail
-account and Google Desktop OAuth client credentials.
+This repository has completed the Sprint 3 implementation for the M1
+single-account read-only path: the app can configure bring-your-own Google
+OAuth client credentials, run a loopback OAuth account-add flow, backfill
+policy-selected Gmail metadata and bodies into SQLite, browse cached labels and
+threads, and load cached or streamed thread bodies in the reader. The real
+Gmail M1 acceptance path still requires manual QA with a test Gmail account and
+Google Desktop OAuth client credentials.
 
 ## Platforms
 

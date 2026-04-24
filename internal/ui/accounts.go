@@ -3,8 +3,9 @@ package ui
 import "errors"
 
 type AccountAddResult struct {
-	Account string
-	Labels  []Label
+	Account         string
+	Labels          []Label
+	MessagesByLabel map[string][]Message
 }
 
 type AccountAdder interface {
@@ -33,11 +34,12 @@ type ThreadLoadRequest struct {
 }
 
 type ThreadLoadResult struct {
-	MessageID   string
-	ThreadID    string
-	Body        []string
-	CacheState  string
-	Attachments []Attachment
+	MessageID      string
+	ThreadID       string
+	Body           []string
+	CacheState     string
+	Attachments    []Attachment
+	ThreadMessages []ThreadMessage
 }
 
 type ThreadLoader interface {

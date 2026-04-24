@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"net/mail"
@@ -13,9 +14,13 @@ import (
 	"github.com/bkarlovitz/gandt/internal/cache"
 	"github.com/bkarlovitz/gandt/internal/config"
 	gandtgmail "github.com/bkarlovitz/gandt/internal/gmail"
+	"github.com/bkarlovitz/gandt/internal/render"
+	gandtsync "github.com/bkarlovitz/gandt/internal/sync"
 	"github.com/bkarlovitz/gandt/internal/ui"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/jmoiron/sqlx"
 	"golang.org/x/oauth2"
+	"golang.org/x/oauth2/google"
 	"google.golang.org/api/option"
 )
 
@@ -52,8 +57,9 @@ func main() {
 	defer logFile.Close()
 
 	uiOptions := []ui.Option{
-		ui.WithAccountAdder(buildAccountAdder(paths)),
+		ui.WithAccountAdder(buildAccountAdder(paths, cfg)),
 		ui.WithCredentialReplacer(buildCredentialReplacer()),
+		ui.WithThreadLoader(buildThreadLoader(paths, cfg)),
 	}
 	if mailbox, ok := loadInitialMailbox(paths); ok {
 		uiOptions = append(uiOptions, ui.WithMailbox(mailbox))
@@ -65,7 +71,7 @@ func main() {
 	}
 }
 
-func buildAccountAdder(paths config.Paths) ui.AccountAdder {
+func buildAccountAdder(paths config.Paths, cfg config.Config) ui.AccountAdder {
 	return ui.AccountAdderFunc(func() (ui.AccountAddResult, error) {
 		ctx := context.Background()
 		db, err := cache.Open(ctx, paths)
@@ -99,11 +105,31 @@ func buildAccountAdder(paths config.Paths) ui.AccountAdder {
 			return ui.AccountAddResult{}, err
 		}
 
+		backfiller := gandtsync.NewBackfiller(db, cfg, gmailClient)
+		backfill, err := backfiller.Backfill(ctx, account)
+		if err != nil {
+			return ui.AccountAddResult{}, err
+		}
+		if _, err := backfiller.FetchBodies(ctx, account, backfill.BodyQueue); err != nil {
+			return ui.AccountAddResult{}, err
+		}
+		if err := cache.NewAccountRepository(db).UpdateSyncMetadata(ctx, account.ID, account.HistoryID, time.Now().UTC()); err != nil {
+			return ui.AccountAddResult{}, err
+		}
+
 		labels, err := cache.NewLabelRepository(db).List(ctx, account.ID)
 		if err != nil {
 			return ui.AccountAddResult{}, err
 		}
-		return ui.AccountAddResult{Account: account.Email, Labels: uiLabels(cache.NewSyncPolicyRepository(db), account.ID, labels)}, nil
+		messagesByLabel, err := uiMessagesByLabel(ctx, cache.NewMessageRepository(db), account.ID, labels)
+		if err != nil {
+			return ui.AccountAddResult{}, err
+		}
+		return ui.AccountAddResult{
+			Account:         account.Email,
+			Labels:          uiLabels(cache.NewSyncPolicyRepository(db), account.ID, labels),
+			MessagesByLabel: messagesByLabel,
+		}, nil
 	})
 }
 
@@ -153,6 +179,156 @@ func loadInitialMailbox(paths config.Paths) (ui.Mailbox, bool) {
 		return ui.AuthFailureMailbox(err.Error()), true
 	}
 	return ui.RealAccountMailbox(account.Email, labelsForUI, messagesByLabel), true
+}
+
+func buildThreadLoader(paths config.Paths, cfg config.Config) ui.ThreadLoader {
+	return ui.ThreadLoaderFunc(func(request ui.ThreadLoadRequest) (ui.ThreadLoadResult, error) {
+		if request.Message.ThreadID == "" {
+			return ui.ThreadLoadResult{}, nil
+		}
+
+		ctx := context.Background()
+		db, err := cache.Open(ctx, paths)
+		if err != nil {
+			return ui.ThreadLoadResult{}, err
+		}
+		defer db.Close()
+		if err := cache.Migrate(ctx, db); err != nil {
+			return ui.ThreadLoadResult{}, err
+		}
+
+		account, err := cache.NewAccountRepository(db).GetByEmail(ctx, request.Account)
+		if err != nil {
+			return ui.ThreadLoadResult{}, err
+		}
+		if result, ok, err := cachedThreadLoad(ctx, db, cfg, account.ID, request.Message); ok || err != nil {
+			return result, err
+		}
+
+		gmailClient, err := gmailClientForAccount(ctx, account.ID)
+		if err != nil {
+			return ui.ThreadLoadResult{}, err
+		}
+		thread, err := gmailClient.GetThread(ctx, request.Message.ThreadID, gandtgmail.MessageFormatFull)
+		if err != nil {
+			return ui.ThreadLoadResult{}, offlineIfUnavailable(err)
+		}
+		result, err := streamedThreadLoad(ctx, db, cfg, account, gmailClient, request.Message, thread)
+		if err != nil {
+			return ui.ThreadLoadResult{}, offlineIfUnavailable(err)
+		}
+		return result, nil
+	})
+}
+
+func gmailClientForAccount(ctx context.Context, accountID string) (*gandtgmail.Client, error) {
+	secrets := auth.NewSecretStore(auth.SystemKeyring{})
+	credentials, err := secrets.ClientCredentials()
+	if err != nil {
+		return nil, err
+	}
+	token, err := secrets.OAuthToken(accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	oauthConfig := oauth2.Config{
+		ClientID:     credentials.ClientID,
+		ClientSecret: credentials.ClientSecret,
+		Endpoint:     google.Endpoint,
+		Scopes:       auth.GmailOAuthScopes,
+	}
+	httpClient := oauth2.NewClient(ctx, oauthConfig.TokenSource(ctx, token))
+	return gandtgmail.NewClient(ctx, option.WithHTTPClient(httpClient))
+}
+
+func cachedThreadLoad(ctx context.Context, db *sqlx.DB, cfg config.Config, accountID string, message ui.Message) (ui.ThreadLoadResult, bool, error) {
+	messages, err := cache.NewMessageRepository(db).ListByThread(ctx, accountID, message.ThreadID)
+	if err != nil {
+		return ui.ThreadLoadResult{}, false, err
+	}
+	if len(messages) == 0 {
+		return ui.ThreadLoadResult{}, false, nil
+	}
+
+	attachments := cache.NewAttachmentRepository(db)
+	result := ui.ThreadLoadResult{
+		MessageID:   message.ID,
+		ThreadID:    message.ThreadID,
+		CacheState:  "cached",
+		Attachments: nil,
+	}
+	selectedHasBody := false
+	for _, cachedMessage := range messages {
+		threadMessage, err := cachedUIThreadMessage(ctx, attachments, cfg, accountID, cachedMessage)
+		if err != nil {
+			return ui.ThreadLoadResult{}, false, err
+		}
+		if cachedMessage.ID == message.ID {
+			result.Body = append([]string{}, threadMessage.Body...)
+			result.Attachments = append([]ui.Attachment{}, threadMessage.Attachments...)
+			selectedHasBody = len(threadMessage.Body) > 0
+		}
+		result.ThreadMessages = append(result.ThreadMessages, threadMessage)
+	}
+	if !selectedHasBody {
+		return ui.ThreadLoadResult{}, false, nil
+	}
+	if len(result.Body) == 0 && len(result.ThreadMessages) > 0 {
+		result.Body = append([]string{}, result.ThreadMessages[0].Body...)
+		result.Attachments = append([]ui.Attachment{}, result.ThreadMessages[0].Attachments...)
+	}
+	return result, true, nil
+}
+
+func streamedThreadLoad(ctx context.Context, db *sqlx.DB, cfg config.Config, account cache.Account, client gandtgmail.MessageReader, selected ui.Message, thread gandtgmail.Thread) (ui.ThreadLoadResult, error) {
+	backfiller := gandtsync.NewBackfiller(db, cfg, client)
+	evaluator := gandtsync.NewPolicyEvaluator(db, cfg)
+	result := ui.ThreadLoadResult{
+		MessageID:  selected.ID,
+		ThreadID:   selected.ThreadID,
+		CacheState: "streamed",
+	}
+
+	for _, message := range thread.Messages {
+		message.ThreadID = firstNonEmptyString(message.ThreadID, thread.ID, selected.ThreadID)
+		threadMessage, err := gmailUIThreadMessage(cfg, message)
+		if err != nil {
+			return ui.ThreadLoadResult{}, err
+		}
+		decision, err := evaluator.Evaluate(ctx, gandtsync.MessageContext{
+			AccountID:    account.ID,
+			AccountEmail: account.Email,
+			From:         gmailHeaderValue(message.Headers, "From"),
+			LabelIDs:     message.LabelIDs,
+		})
+		if err != nil {
+			return ui.ThreadLoadResult{}, err
+		}
+
+		cacheState := "streamed"
+		switch {
+		case decision.Excluded:
+			cacheState = "excluded"
+		case decision.Depth == config.CacheDepthBody || decision.Depth == config.CacheDepthFull:
+			if _, err := backfiller.PersistFullMessage(ctx, account, message); err != nil {
+				return ui.ThreadLoadResult{}, err
+			}
+			cacheState = "cached"
+		}
+
+		if message.ID == selected.ID {
+			result.Body = append([]string{}, threadMessage.Body...)
+			result.Attachments = append([]ui.Attachment{}, threadMessage.Attachments...)
+			result.CacheState = cacheState
+		}
+		result.ThreadMessages = append(result.ThreadMessages, threadMessage)
+	}
+	if len(result.Body) == 0 && len(result.ThreadMessages) > 0 {
+		result.Body = append([]string{}, result.ThreadMessages[0].Body...)
+		result.Attachments = append([]ui.Attachment{}, result.ThreadMessages[0].Attachments...)
+	}
+	return result, nil
 }
 
 func uiLabels(policies cache.SyncPolicyRepository, accountID string, labels []cache.Label) []ui.Label {
@@ -208,6 +384,104 @@ func uiMessage(summary cache.MessageSummary) ui.Message {
 	}
 }
 
+func cachedUIThreadMessage(ctx context.Context, attachments cache.AttachmentRepository, cfg config.Config, accountID string, message cache.Message) (ui.ThreadMessage, error) {
+	body, err := cachedBodyLines(cfg, message)
+	if err != nil {
+		return ui.ThreadMessage{}, err
+	}
+	cachedAttachments, err := attachments.ListForMessage(ctx, accountID, message.ID)
+	if err != nil {
+		return ui.ThreadMessage{}, err
+	}
+	from, address := displaySender(message.FromAddr)
+	return ui.ThreadMessage{
+		ID:          message.ID,
+		From:        from,
+		Address:     address,
+		Date:        displayDate(message.InternalDate, message.Date),
+		Body:        body,
+		Attachments: uiAttachments(cachedAttachments),
+	}, nil
+}
+
+func cachedBodyLines(cfg config.Config, message cache.Message) ([]string, error) {
+	if message.BodyPlain != nil {
+		return bodyLines(*message.BodyPlain), nil
+	}
+	if message.BodyHTML == nil {
+		return nil, nil
+	}
+	text, err := render.HTMLToText(*message.BodyHTML, render.HTMLRenderOptions{URLFootnotes: cfg.UI.RenderURLFootnotes})
+	if err != nil {
+		return nil, err
+	}
+	return bodyLines(text), nil
+}
+
+func gmailUIThreadMessage(cfg config.Config, message gandtgmail.Message) (ui.ThreadMessage, error) {
+	extracted, err := gandtgmail.ExtractBody(message, gandtgmail.BodyExtractionOptions{KeepHTML: true})
+	if err != nil {
+		return ui.ThreadMessage{}, err
+	}
+	body, err := extractedBodyLines(cfg, extracted)
+	if err != nil {
+		return ui.ThreadMessage{}, err
+	}
+	from, address := displaySender(gmailHeaderValue(message.Headers, "From"))
+	return ui.ThreadMessage{
+		ID:          message.ID,
+		From:        from,
+		Address:     address,
+		Date:        displayDate(timePtr(message.InternalDate)),
+		Body:        body,
+		Attachments: uiMIMEAttachments(extracted.Attachments),
+	}, nil
+}
+
+func extractedBodyLines(cfg config.Config, extracted gandtgmail.ExtractedBody) ([]string, error) {
+	if extracted.Plain != nil {
+		return bodyLines(*extracted.Plain), nil
+	}
+	if extracted.FallbackHTML == nil {
+		return nil, nil
+	}
+	text, err := render.HTMLToText(*extracted.FallbackHTML, render.HTMLRenderOptions{URLFootnotes: cfg.UI.RenderURLFootnotes})
+	if err != nil {
+		return nil, err
+	}
+	return bodyLines(text), nil
+}
+
+func bodyLines(body string) []string {
+	body = strings.TrimSpace(strings.ReplaceAll(body, "\r\n", "\n"))
+	if body == "" {
+		return nil
+	}
+	return strings.Split(body, "\n")
+}
+
+func uiAttachments(attachments []cache.Attachment) []ui.Attachment {
+	out := make([]ui.Attachment, 0, len(attachments))
+	for _, attachment := range attachments {
+		out = append(out, ui.Attachment{
+			Name: firstNonEmptyString(attachment.Filename, "unnamed"),
+			Size: humanBytes(attachment.SizeBytes),
+		})
+	}
+	return out
+}
+
+func uiMIMEAttachments(attachments []gandtgmail.MIMEAttachment) []ui.Attachment {
+	out := make([]ui.Attachment, 0, len(attachments))
+	for _, attachment := range attachments {
+		out = append(out, ui.Attachment{
+			Name: firstNonEmptyString(attachment.Filename, "unnamed"),
+			Size: humanBytes(attachment.Size),
+		})
+	}
+	return out
+}
+
 func displaySender(value string) (string, string) {
 	value = strings.TrimSpace(value)
 	if value == "" {
@@ -230,4 +504,54 @@ func displayDate(values ...*time.Time) string {
 		}
 	}
 	return ""
+}
+
+func timePtr(value time.Time) *time.Time {
+	if value.IsZero() {
+		return nil
+	}
+	return &value
+}
+
+func gmailHeaderValue(headers []gandtgmail.MessageHeader, name string) string {
+	for _, header := range headers {
+		if strings.EqualFold(header.Name, name) {
+			return header.Value
+		}
+	}
+	return ""
+}
+
+func offlineIfUnavailable(err error) error {
+	if errors.Is(err, gandtgmail.ErrUnavailable) {
+		return ui.MarkOffline(err)
+	}
+	return err
+}
+
+func firstNonEmptyString(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func humanBytes(size int) string {
+	if size < 0 {
+		size = 0
+	}
+	const unit = 1024
+	if size < unit {
+		return fmt.Sprintf("%d B", size)
+	}
+	value := float64(size)
+	for _, suffix := range []string{"KB", "MB", "GB"} {
+		value /= unit
+		if value < unit {
+			return fmt.Sprintf("%.1f %s", value, suffix)
+		}
+	}
+	return fmt.Sprintf("%.1f TB", value/unit)
 }

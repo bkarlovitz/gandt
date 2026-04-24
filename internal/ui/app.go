@@ -118,7 +118,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.statusMessage = fmt.Sprintf("added account %s", msg.Result.Account)
-		m.mailbox = RealAccountMailbox(msg.Result.Account, msg.Result.Labels)
+		m.mailbox = RealAccountMailbox(msg.Result.Account, msg.Result.Labels, msg.Result.MessagesByLabel)
 		m.selectedLabel = clamp(m.selectedLabel, 0, len(m.mailbox.Labels)-1)
 	case replaceCredentialsDoneMsg:
 		m.replacingCreds = false
@@ -380,6 +380,7 @@ func (m *Model) applyThreadLoadResult(result ThreadLoadResult) {
 			}
 			messages[i].Body = append([]string{}, result.Body...)
 			messages[i].Attachments = append([]Attachment{}, result.Attachments...)
+			messages[i].ThreadMessages = append([]ThreadMessage{}, result.ThreadMessages...)
 			if result.CacheState != "" {
 				messages[i].CacheState = result.CacheState
 			}
@@ -389,6 +390,9 @@ func (m *Model) applyThreadLoadResult(result ThreadLoadResult) {
 	for labelID, messages := range m.mailbox.MessagesByLabel {
 		update(messages)
 		m.mailbox.MessagesByLabel[labelID] = messages
+	}
+	if index := threadMessageIndex(result.ThreadMessages, result.MessageID); index >= 0 {
+		m.selectedThreadMessage = index
 	}
 }
 
@@ -400,7 +404,27 @@ func messageMatchesLoadResult(message Message, result ThreadLoadResult) bool {
 }
 
 func messageHasReadableBody(message Message) bool {
-	return len(message.Body) > 0
+	if len(message.Body) > 0 {
+		return true
+	}
+	for _, threadMessage := range message.ThreadMessages {
+		if len(threadMessage.Body) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func threadMessageIndex(messages []ThreadMessage, id string) int {
+	if id == "" {
+		return -1
+	}
+	for i, message := range messages {
+		if message.ID == id {
+			return i
+		}
+	}
+	return -1
 }
 
 func (m *Model) moveSelection(delta int) {

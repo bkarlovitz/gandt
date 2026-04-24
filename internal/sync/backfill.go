@@ -25,6 +25,7 @@ type Backfiller struct {
 	threads   cache.ThreadRepository
 	messages  cache.MessageRepository
 	msgLabels cache.MessageLabelRepository
+	attach    cache.AttachmentRepository
 	evaluator PolicyEvaluator
 }
 
@@ -56,6 +57,7 @@ func NewBackfiller(db *sqlx.DB, cfg config.Config, client gmail.MessageReader) B
 		threads:   cache.NewThreadRepository(db),
 		messages:  cache.NewMessageRepository(db),
 		msgLabels: cache.NewMessageLabelRepository(db),
+		attach:    cache.NewAttachmentRepository(db),
 		evaluator: NewPolicyEvaluator(db, cfg),
 	}
 }
