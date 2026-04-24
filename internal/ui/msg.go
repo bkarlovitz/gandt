@@ -65,6 +65,12 @@ type triageDoneMsg struct {
 	Err     error
 }
 
+type composeDoneMsg struct {
+	Operation ComposeOperation
+	Result    ComposeResult
+	Err       error
+}
+
 type cacheDashboardDoneMsg struct {
 	Result CacheDashboard
 	Err    error

@@ -12,7 +12,7 @@ func TestRefreshKeyStartsDeltaSyncAndShowsSuccess(t *testing.T) {
 	refresher := &fakeManualRefresher{result: RefreshResult{Summary: "delta synced"}}
 	model := New(config.Default(), WithManualRefresher(refresher))
 
-	updated, cmd := model.Update(keyMsg("r"))
+	updated, cmd := model.Update(keyMsg("ctrl+r"))
 	got := updated.(Model)
 	if cmd == nil {
 		t.Fatal("expected refresh command")
@@ -38,7 +38,7 @@ func TestRelistKeyRefreshesCurrentLabel(t *testing.T) {
 	refresher := &fakeManualRefresher{result: RefreshResult{Summary: "label refreshed"}}
 	model := New(config.Default(), WithManualRefresher(refresher))
 
-	updated, cmd := model.Update(keyMsg("R"))
+	updated, cmd := submitTestCommand(model, "sync-label")
 	got := updated.(Model)
 	if cmd == nil {
 		t.Fatal("expected relist command")
@@ -73,12 +73,12 @@ func TestSyncAllCommandSubmitsManualRefresh(t *testing.T) {
 func TestRefreshPreventsOverlappingSyncForSameAccount(t *testing.T) {
 	model := New(config.Default(), WithManualRefresher(&fakeManualRefresher{}))
 
-	updated, cmd := model.Update(keyMsg("r"))
+	updated, cmd := model.Update(keyMsg("ctrl+r"))
 	got := updated.(Model)
 	if cmd == nil {
 		t.Fatal("expected first refresh command")
 	}
-	updated, second := got.Update(keyMsg("r"))
+	updated, second := got.Update(keyMsg("ctrl+r"))
 	got = updated.(Model)
 	if second != nil {
 		t.Fatalf("expected overlapping refresh to be debounced, got %T", second)
@@ -92,7 +92,7 @@ func TestRefreshErrorRendersToast(t *testing.T) {
 	refresher := &fakeManualRefresher{err: errors.New("quota")}
 	model := New(config.Default(), WithManualRefresher(refresher))
 
-	updated, cmd := model.Update(keyMsg("r"))
+	updated, cmd := model.Update(keyMsg("ctrl+r"))
 	got := updated.(Model)
 	updated, _ = got.Update(cmd())
 	got = updated.(Model)

@@ -275,14 +275,24 @@ type Draft struct {
 	SendState   SendState
 }
 
-func (d Draft) ValidateForSend() error {
-	if err := d.Headers.ValidateForSend(); err != nil {
+func (d Draft) ValidateDraft() error {
+	if err := d.Headers.ValidateDraft(); err != nil {
 		return err
 	}
 	for i, attachment := range d.Attachments {
 		if err := attachment.ValidateMetadata(); err != nil {
 			return fmt.Errorf("attachment[%d]: %w", i, err)
 		}
+	}
+	return nil
+}
+
+func (d Draft) ValidateForSend() error {
+	if err := d.ValidateDraft(); err != nil {
+		return err
+	}
+	if len(d.Headers.Recipients()) == 0 {
+		return ErrRecipientRequired
 	}
 	return nil
 }

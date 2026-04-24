@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"mime"
+	"mime/quotedprintable"
 	"net/mail"
 	"strings"
 )
@@ -16,7 +17,19 @@ const (
 )
 
 func AssembleMIME(draft Draft) ([]byte, error) {
-	if err := draft.ValidateForSend(); err != nil {
+	return assembleMIME(draft, true)
+}
+
+func AssembleDraftMIME(draft Draft) ([]byte, error) {
+	return assembleMIME(draft, false)
+}
+
+func assembleMIME(draft Draft, requireRecipient bool) ([]byte, error) {
+	if requireRecipient {
+		if err := draft.ValidateForSend(); err != nil {
+			return nil, err
+		}
+	} else if err := draft.ValidateDraft(); err != nil {
 		return nil, err
 	}
 	var body bytes.Buffer
@@ -75,9 +88,13 @@ func writeBodyPart(body *bytes.Buffer, source BodySource) error {
 
 func writeTextPart(body *bytes.Buffer, contentType string, text string) {
 	writeHeader(body, "Content-Type", contentType+"; charset=utf-8")
-	writeHeader(body, "Content-Transfer-Encoding", "7bit")
+	if isASCII(text) {
+		writeHeader(body, "Content-Transfer-Encoding", "7bit")
+	} else {
+		writeHeader(body, "Content-Transfer-Encoding", "quoted-printable")
+	}
 	body.WriteString("\r\n")
-	body.WriteString(normalizeCRLF(text))
+	body.WriteString(encodeTextBody(text))
 	body.WriteString("\r\n")
 }
 
@@ -99,6 +116,7 @@ func writeAttachmentPart(body *bytes.Buffer, attachment Attachment) {
 }
 
 func writeHeader(body *bytes.Buffer, key string, value string) {
+	value = cleanHeaderValue(value)
 	if strings.TrimSpace(value) == "" {
 		return
 	}
@@ -131,6 +149,24 @@ func normalizeCRLF(value string) string {
 	value = strings.ReplaceAll(value, "\r\n", "\n")
 	value = strings.ReplaceAll(value, "\r", "\n")
 	return strings.ReplaceAll(value, "\n", "\r\n")
+}
+
+func encodeTextBody(value string) string {
+	value = normalizeCRLF(value)
+	if isASCII(value) {
+		return value
+	}
+	var out bytes.Buffer
+	writer := quotedprintable.NewWriter(&out)
+	_, _ = writer.Write([]byte(value))
+	_ = writer.Close()
+	return out.String()
+}
+
+func cleanHeaderValue(value string) string {
+	value = strings.ReplaceAll(value, "\r", " ")
+	value = strings.ReplaceAll(value, "\n", " ")
+	return strings.Join(strings.Fields(value), " ")
 }
 
 func wrapBase64(data []byte) string {

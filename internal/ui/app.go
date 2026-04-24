@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bkarlovitz/gandt/internal/compose"
 	"github.com/bkarlovitz/gandt/internal/config"
 	"github.com/bkarlovitz/gandt/internal/gmail"
 	gandtsync "github.com/bkarlovitz/gandt/internal/sync"
@@ -85,6 +86,7 @@ type Model struct {
 	searchCancel          context.CancelFunc
 	toastMessage          string
 	triageActor           TriageActor
+	composeActor          ComposeActor
 	cacheDashboardLoader  CacheDashboardLoader
 	loadingCacheDashboard bool
 	cacheDashboard        CacheDashboard
@@ -233,6 +235,14 @@ func WithTriageActor(actor TriageActor) Option {
 	return func(m *Model) {
 		if actor != nil {
 			m.triageActor = actor
+		}
+	}
+}
+
+func WithComposeActor(actor ComposeActor) Option {
+	return func(m *Model) {
+		if actor != nil {
+			m.composeActor = actor
 		}
 	}
 }
@@ -476,6 +486,42 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.statusMessage = summary
 		m.toastMessage = summary
+	case composeDoneMsg:
+		if msg.Err != nil {
+			m.compose.SendStatus = compose.SendStatusFailed
+			m.compose.Error = msg.Err.Error()
+			switch msg.Operation {
+			case ComposeOperationSaveDraft:
+				m.statusMessage = "draft save failed: " + msg.Err.Error()
+			default:
+				m.statusMessage = "send failed: " + msg.Err.Error()
+			}
+			m.toastMessage = m.statusMessage
+			return m, nil
+		}
+		m.compose.SendStatus = msg.Result.Status
+		m.compose.DraftID = msg.Result.DraftID
+		m.compose.Error = ""
+		summary := msg.Result.Summary
+		if summary == "" {
+			summary = string(msg.Result.Status)
+		}
+		m.statusMessage = summary
+		m.toastMessage = summary
+		m.mode = ModeNormal
+		switch msg.Operation {
+		case ComposeOperationSaveDraft:
+			m.compose.AutosaveStatus = "draft saved"
+			return m.startComposeRefresh("DRAFT", "Drafts")
+		case ComposeOperationSend:
+			if msg.Result.Status == compose.SendStatusSent {
+				m.compose.AutosaveStatus = "sent"
+				return m.startComposeRefresh("SENT", "Sent")
+			}
+			if msg.Result.Status == compose.SendStatusQueued {
+				m.compose.AutosaveStatus = "queued"
+			}
+		}
 	case cacheDashboardDoneMsg:
 		m.loadingCacheDashboard = false
 		if msg.Err != nil {
@@ -783,15 +829,13 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.enterSearchMode()
 	case "c":
 		m.startComposeMode(composeKindNew())
-	case "r":
+	case "ctrl+r":
 		if m.manualRefresher != nil {
 			return m.startRefresh(RefreshDelta)
 		}
+	case "r":
 		m.startComposeMode(composeKindReply())
 	case "R":
-		if m.manualRefresher != nil {
-			return m.startRefresh(RefreshRelistLabel)
-		}
 		m.startComposeMode(composeKindReplyAll())
 	case "f":
 		m.startComposeMode(composeKindForward())
@@ -1423,6 +1467,8 @@ func (m Model) submitCommand() (tea.Model, tea.Cmd) {
 		return m, m.runReplaceCredentials()
 	case "sync-all":
 		return m.startRefresh(RefreshAll)
+	case "sync-label":
+		return m.startRefresh(RefreshRelistLabel)
 	case "cache":
 		if m.loadingCacheDashboard {
 			m.statusMessage = "cache dashboard already loading"

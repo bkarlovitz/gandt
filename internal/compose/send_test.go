@@ -44,3 +44,15 @@ func TestSendServiceQueuesOnSendFailure(t *testing.T) {
 		t.Fatalf("state = %#v queued=%v", state, queued)
 	}
 }
+
+func TestSendServiceFailsWhenQueueUnavailable(t *testing.T) {
+	state := SendService{
+		Send: func(context.Context, []byte) error {
+			return errors.New("network down")
+		},
+	}.SendOrQueue(context.Background(), "acct-1", []byte("raw"))
+
+	if state.Status != SendStatusFailed || state.LastError != "outbox queue unavailable" {
+		t.Fatalf("state = %#v", state)
+	}
+}

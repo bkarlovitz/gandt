@@ -3,6 +3,8 @@ package ui
 import (
 	"context"
 	"errors"
+
+	"github.com/bkarlovitz/gandt/internal/compose"
 )
 
 type AccountAddResult struct {
@@ -200,6 +202,49 @@ type TriageActorFunc func(TriageActionRequest) (TriageActionResult, error)
 
 func (fn TriageActorFunc) ApplyAction(request TriageActionRequest) (TriageActionResult, error) {
 	return fn(request)
+}
+
+type ComposeOperation string
+
+const (
+	ComposeOperationSaveDraft ComposeOperation = "save_draft"
+	ComposeOperationSend      ComposeOperation = "send"
+)
+
+type ComposeRequest struct {
+	Account string
+	Draft   compose.Draft
+}
+
+type ComposeResult struct {
+	Operation ComposeOperation
+	Status    compose.SendStatus
+	DraftID   compose.DraftID
+	Summary   string
+}
+
+type ComposeActor interface {
+	SaveDraft(ComposeRequest) (ComposeResult, error)
+	Send(ComposeRequest) (ComposeResult, error)
+}
+
+type ComposeActorFunc struct {
+	SaveDraftFn func(ComposeRequest) (ComposeResult, error)
+	SendFn      func(ComposeRequest) (ComposeResult, error)
+}
+
+func (fn ComposeActorFunc) SaveDraft(request ComposeRequest) (ComposeResult, error) {
+	if fn.SaveDraftFn == nil {
+		return ComposeResult{}, errors.New("save draft unavailable")
+	}
+	return fn.SaveDraftFn(request)
+}
+
+func (fn ComposeActorFunc) Send(request ComposeRequest) (ComposeResult, error) {
+	if fn.SendFn == nil {
+		return ComposeResult{}, errors.New("send unavailable")
+	}
+	return fn.SendFn(request)
 }
 
 type OfflineError struct {

@@ -12,6 +12,7 @@ import (
 
 	"github.com/bkarlovitz/gandt/internal/auth"
 	"github.com/bkarlovitz/gandt/internal/cache"
+	gandtcompose "github.com/bkarlovitz/gandt/internal/compose"
 	"github.com/bkarlovitz/gandt/internal/config"
 	gandtgmail "github.com/bkarlovitz/gandt/internal/gmail"
 	"github.com/bkarlovitz/gandt/internal/render"
@@ -66,6 +67,7 @@ func main() {
 		ui.WithSearchRunner(buildSearchRunner(paths, cfg)),
 		ui.WithRecentSearchStore(buildRecentSearchStore(paths, cfg)),
 		ui.WithTriageActor(buildTriageActor(paths)),
+		ui.WithComposeActor(buildComposeActor(paths)),
 		ui.WithCacheDashboardLoader(buildCacheDashboardLoader(paths, cfg)),
 		ui.WithCachePolicyStore(buildCachePolicyStore(paths, cfg)),
 		ui.WithCacheExclusionStore(buildCacheExclusionStore(paths)),
@@ -929,6 +931,119 @@ func buildTriageActor(paths config.Paths) ui.TriageActor {
 			LabelName: request.LabelName,
 		}, nil
 	})
+}
+
+func buildComposeActor(paths config.Paths) ui.ComposeActor {
+	return ui.ComposeActorFunc{
+		SaveDraftFn: func(request ui.ComposeRequest) (ui.ComposeResult, error) {
+			ctx := context.Background()
+			db, err := cache.Open(ctx, paths)
+			if err != nil {
+				return ui.ComposeResult{}, err
+			}
+			defer db.Close()
+			if err := cache.Migrate(ctx, db); err != nil {
+				return ui.ComposeResult{}, err
+			}
+			account, draft, err := resolveComposeDraft(ctx, db, request)
+			if err != nil {
+				return ui.ComposeResult{}, err
+			}
+			raw, err := gandtcompose.AssembleDraftMIME(draft)
+			if err != nil {
+				return ui.ComposeResult{}, err
+			}
+			gmailClient, err := gmailClientForAccount(ctx, account.ID)
+			if err != nil {
+				return ui.ComposeResult{}, err
+			}
+			var ref gandtgmail.DraftRef
+			if draft.DraftID.GmailDraftID == "" {
+				ref, err = gmailClient.CreateDraft(ctx, raw)
+			} else {
+				ref, err = gmailClient.UpdateDraft(ctx, draft.DraftID.GmailDraftID, raw)
+			}
+			if err != nil {
+				return ui.ComposeResult{}, offlineIfUnavailable(err)
+			}
+			return ui.ComposeResult{
+				Operation: ui.ComposeOperationSaveDraft,
+				Status:    gandtcompose.SendStatusDraftSaved,
+				DraftID: gandtcompose.DraftID{
+					GmailDraftID:   ref.ID,
+					GmailMessageID: ref.Message.ID,
+					ThreadID:       ref.Message.ThreadID,
+				},
+				Summary: "draft saved",
+			}, nil
+		},
+		SendFn: func(request ui.ComposeRequest) (ui.ComposeResult, error) {
+			ctx := context.Background()
+			db, err := cache.Open(ctx, paths)
+			if err != nil {
+				return ui.ComposeResult{}, err
+			}
+			defer db.Close()
+			if err := cache.Migrate(ctx, db); err != nil {
+				return ui.ComposeResult{}, err
+			}
+			account, draft, err := resolveComposeDraft(ctx, db, request)
+			if err != nil {
+				return ui.ComposeResult{}, err
+			}
+			raw, err := gandtcompose.AssembleMIME(draft)
+			if err != nil {
+				return ui.ComposeResult{}, err
+			}
+			gmailClient, err := gmailClientForAccount(ctx, account.ID)
+			if err != nil {
+				return ui.ComposeResult{}, err
+			}
+			ref, err := gmailClient.SendMessage(ctx, raw)
+			if err == nil {
+				return ui.ComposeResult{
+					Operation: ui.ComposeOperationSend,
+					Status:    gandtcompose.SendStatusSent,
+					DraftID:   gandtcompose.DraftID{GmailMessageID: ref.ID, ThreadID: ref.ThreadID},
+					Summary:   "send complete",
+				}, nil
+			}
+			if !errors.Is(err, gandtgmail.ErrUnavailable) {
+				return ui.ComposeResult{}, err
+			}
+			if _, queueErr := cache.NewOutboxRepository(db).Queue(ctx, cache.OutboxMessage{
+				AccountID: account.ID,
+				RawRFC822: raw,
+				QueuedAt:  time.Now().UTC(),
+				LastError: err.Error(),
+			}); queueErr != nil {
+				return ui.ComposeResult{}, queueErr
+			}
+			return ui.ComposeResult{
+				Operation: ui.ComposeOperationSend,
+				Status:    gandtcompose.SendStatusQueued,
+				Summary:   "send queued",
+			}, nil
+		},
+	}
+}
+
+func resolveComposeDraft(ctx context.Context, db *sqlx.DB, request ui.ComposeRequest) (cache.Account, gandtcompose.Draft, error) {
+	accounts, err := cache.NewAccountRepository(db).List(ctx)
+	if err != nil {
+		return cache.Account{}, gandtcompose.Draft{}, err
+	}
+	account, err := resolveRefreshAccount(accounts, request.Account)
+	if err != nil {
+		return cache.Account{}, gandtcompose.Draft{}, err
+	}
+	draft := request.Draft
+	draft.Headers.ActiveAccountID = account.ID
+	draft.Headers.AccountEmail = account.Email
+	if strings.TrimSpace(draft.Headers.SendAs.Email) == "" {
+		draft.Headers.SendAs = gandtcompose.NewAddress(account.Email)
+	}
+	return account, draft, nil
 }
 
 type charmSyncLogger struct{}

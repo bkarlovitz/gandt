@@ -13,6 +13,7 @@ type ComposeModeState struct {
 	Headers        compose.Headers
 	Body           string
 	Attachments    []compose.Attachment
+	DraftID        compose.DraftID
 	AttachInput    string
 	SendStatus     compose.SendStatus
 	AutosaveStatus string
@@ -109,17 +110,26 @@ func (m Model) handleComposeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	switch msg.Type {
 	case tea.KeyCtrlD:
-		m.compose.AutosaveStatus = "draft saved"
-		m.compose.SendStatus = compose.SendStatusDraftSaved
-		m.mode = ModeNormal
-		m.statusMessage = "draft saved"
-		return m.startComposeRefresh("DRAFT", "Drafts")
+		if m.composeActor == nil {
+			m.compose.SendStatus = compose.SendStatusFailed
+			m.compose.Error = "compose backend unavailable"
+			m.statusMessage = "draft save failed: compose backend unavailable"
+			return m, nil
+		}
+		m.compose.AutosaveStatus = "saving draft"
+		m.compose.SendStatus = compose.SendStatusSavingDraft
+		m.statusMessage = "saving draft"
+		return m, m.runComposeSaveDraft(m.composeRequest())
 	case tea.KeyCtrlS:
-		m.compose.SendStatus = compose.SendStatusSent
-		m.compose.AutosaveStatus = "sent"
-		m.mode = ModeNormal
-		m.statusMessage = "send complete"
-		return m.startComposeRefresh("SENT", "Sent")
+		if m.composeActor == nil {
+			m.compose.SendStatus = compose.SendStatusFailed
+			m.compose.Error = "compose backend unavailable"
+			m.statusMessage = "send failed: compose backend unavailable"
+			return m, nil
+		}
+		m.compose.SendStatus = compose.SendStatusSending
+		m.statusMessage = "sending"
+		return m, m.runComposeSend(m.composeRequest())
 	case tea.KeyCtrlC:
 		m.compose.DiscardConfirm = true
 		m.statusMessage = "discard compose? y/n"
@@ -131,6 +141,33 @@ func (m Model) handleComposeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.statusMessage = "compose closed"
 	}
 	return m, nil
+}
+
+func (m Model) composeRequest() ComposeRequest {
+	return ComposeRequest{
+		Account: m.mailbox.Account,
+		Draft: compose.Draft{
+			Kind:        m.compose.Kind,
+			Headers:     m.compose.Headers,
+			Body:        compose.BodySource{PlainText: m.compose.Body},
+			Attachments: append([]compose.Attachment{}, m.compose.Attachments...),
+			DraftID:     m.compose.DraftID,
+		},
+	}
+}
+
+func (m Model) runComposeSaveDraft(request ComposeRequest) tea.Cmd {
+	return func() tea.Msg {
+		result, err := m.composeActor.SaveDraft(request)
+		return composeDoneMsg{Operation: ComposeOperationSaveDraft, Result: result, Err: err}
+	}
+}
+
+func (m Model) runComposeSend(request ComposeRequest) tea.Cmd {
+	return func() tea.Msg {
+		result, err := m.composeActor.Send(request)
+		return composeDoneMsg{Operation: ComposeOperationSend, Result: result, Err: err}
+	}
 }
 
 func (m Model) startComposeRefresh(labelID string, labelName string) (tea.Model, tea.Cmd) {

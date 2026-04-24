@@ -24,11 +24,14 @@ func (s SendService) SendOrQueue(ctx context.Context, accountID string, raw []by
 	}
 	if err := s.Send(ctx, raw); err != nil {
 		state := SendState{Status: SendStatusQueued, LastError: err.Error()}
-		if s.Queue != nil {
-			if queueErr := s.Queue(ctx, accountID, raw, now(), err.Error()); queueErr != nil {
-				state.Status = SendStatusFailed
-				state.LastError = queueErr.Error()
-			}
+		if s.Queue == nil {
+			state.Status = SendStatusFailed
+			state.LastError = "outbox queue unavailable"
+			return state
+		}
+		if queueErr := s.Queue(ctx, accountID, raw, now(), err.Error()); queueErr != nil {
+			state.Status = SendStatusFailed
+			state.LastError = queueErr.Error()
 		}
 		return state
 	}

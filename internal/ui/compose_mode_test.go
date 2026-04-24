@@ -34,8 +34,37 @@ func TestComposeModeKeyPaths(t *testing.T) {
 	}
 }
 
+func TestReplyKeysOpenComposeWhenRefreshIsConfigured(t *testing.T) {
+	model := New(config.Default(), WithManualRefresher(&fakeManualRefresher{}))
+
+	updated, cmd := model.Update(keyMsg("r"))
+	got := updated.(Model)
+	if cmd != nil || got.mode != ModeCompose || got.compose.Kind != compose.ComposeKindReply {
+		t.Fatalf("reply update mode=%v kind=%s cmd=%T", got.mode, got.compose.Kind, cmd)
+	}
+
+	model = New(config.Default(), WithManualRefresher(&fakeManualRefresher{}))
+	updated, cmd = model.Update(keyMsg("R"))
+	got = updated.(Model)
+	if cmd != nil || got.mode != ModeCompose || got.compose.Kind != compose.ComposeKindReplyAll {
+		t.Fatalf("reply-all update mode=%v kind=%s cmd=%T", got.mode, got.compose.Kind, cmd)
+	}
+}
+
 func TestComposeModeSaveSendDiscardAndAttach(t *testing.T) {
-	model := New(config.Default())
+	actor := &fakeComposeActor{
+		sendResult: ComposeResult{
+			Operation: ComposeOperationSend,
+			Status:    compose.SendStatusSent,
+			Summary:   "send complete",
+		},
+		saveResult: ComposeResult{
+			Operation: ComposeOperationSaveDraft,
+			Status:    compose.SendStatusDraftSaved,
+			Summary:   "draft saved",
+		},
+	}
+	model := New(config.Default(), WithComposeActor(actor))
 	updated, _ := model.Update(keyMsg("c"))
 	model = updated.(Model)
 
@@ -45,7 +74,12 @@ func TestComposeModeSaveSendDiscardAndAttach(t *testing.T) {
 		t.Fatalf("attach state=%v status=%q", model.compose.AttachPrompt, model.statusMessage)
 	}
 
-	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyCtrlS})
+	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyCtrlS})
+	model = updated.(Model)
+	if cmd == nil || model.compose.SendStatus != compose.SendStatusSending {
+		t.Fatalf("send command=%v status=%s", cmd, model.compose.SendStatus)
+	}
+	updated, _ = model.Update(cmd())
 	got := updated.(Model)
 	if got.mode != ModeNormal || got.compose.SendStatus != compose.SendStatusSent || got.statusMessage != "send complete" {
 		t.Fatalf("send state mode=%v status=%s msg=%q", got.mode, got.compose.SendStatus, got.statusMessage)
@@ -53,7 +87,12 @@ func TestComposeModeSaveSendDiscardAndAttach(t *testing.T) {
 
 	updated, _ = model.Update(keyMsg("c"))
 	model = updated.(Model)
-	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyCtrlD})
+	updated, cmd = model.Update(tea.KeyMsg{Type: tea.KeyCtrlD})
+	model = updated.(Model)
+	if cmd == nil || model.compose.SendStatus != compose.SendStatusSavingDraft {
+		t.Fatalf("draft command=%v status=%s", cmd, model.compose.SendStatus)
+	}
+	updated, _ = model.Update(cmd())
 	got = updated.(Model)
 	if got.mode != ModeNormal || got.compose.SendStatus != compose.SendStatusDraftSaved || got.statusMessage != "draft saved" {
 		t.Fatalf("draft state mode=%v status=%s msg=%q", got.mode, got.compose.SendStatus, got.statusMessage)
@@ -112,10 +151,27 @@ func TestComposeModeAttachmentPathInput(t *testing.T) {
 
 func TestComposeModeRefreshesAfterSendAndDraft(t *testing.T) {
 	refresher := &fakeManualRefresher{result: RefreshResult{Summary: "compose refreshed"}}
-	model := New(config.Default(), WithManualRefresher(refresher))
+	actor := &fakeComposeActor{
+		sendResult: ComposeResult{
+			Operation: ComposeOperationSend,
+			Status:    compose.SendStatusSent,
+			Summary:   "send complete",
+		},
+		saveResult: ComposeResult{
+			Operation: ComposeOperationSaveDraft,
+			Status:    compose.SendStatusDraftSaved,
+			Summary:   "draft saved",
+		},
+	}
+	model := New(config.Default(), WithManualRefresher(refresher), WithComposeActor(actor))
 	updated, _ := model.Update(keyMsg("c"))
 	model = updated.(Model)
 	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyCtrlS})
+	model = updated.(Model)
+	if cmd == nil {
+		t.Fatal("expected send command")
+	}
+	updated, cmd = model.Update(cmd())
 	model = updated.(Model)
 	if cmd == nil {
 		t.Fatal("expected post-send refresh command")
@@ -132,6 +188,11 @@ func TestComposeModeRefreshesAfterSendAndDraft(t *testing.T) {
 	updated, _ = model.Update(keyMsg("c"))
 	model = updated.(Model)
 	updated, cmd = model.Update(tea.KeyMsg{Type: tea.KeyCtrlD})
+	model = updated.(Model)
+	if cmd == nil {
+		t.Fatal("expected draft command")
+	}
+	updated, cmd = model.Update(cmd())
 	model = updated.(Model)
 	if cmd == nil {
 		t.Fatal("expected post-draft refresh command")
@@ -153,4 +214,25 @@ func TestApplyOutboxSentTransitionScopesAccount(t *testing.T) {
 	if model.compose.SendStatus != compose.SendStatusSent || model.statusMessage != "queued send completed" {
 		t.Fatalf("model = %#v", model.compose)
 	}
+}
+
+type fakeComposeActor struct {
+	saveResult ComposeResult
+	sendResult ComposeResult
+}
+
+func (f *fakeComposeActor) SaveDraft(request ComposeRequest) (ComposeResult, error) {
+	result := f.saveResult
+	if result.Operation == "" {
+		result.Operation = ComposeOperationSaveDraft
+	}
+	return result, nil
+}
+
+func (f *fakeComposeActor) Send(request ComposeRequest) (ComposeResult, error) {
+	result := f.sendResult
+	if result.Operation == "" {
+		result.Operation = ComposeOperationSend
+	}
+	return result, nil
 }

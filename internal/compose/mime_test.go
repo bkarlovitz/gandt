@@ -4,6 +4,7 @@ import (
 	"io"
 	"mime"
 	"mime/multipart"
+	"net/mail"
 	"strings"
 	"testing"
 )
@@ -97,5 +98,56 @@ func TestAssembleMIMEAlternativeAndAttachment(t *testing.T) {
 	encoded, _ := io.ReadAll(attachment)
 	if strings.TrimSpace(string(encoded)) != "cmVwb3J0" {
 		t.Fatalf("attachment body = %q, want base64 report", string(encoded))
+	}
+}
+
+func TestAssembleDraftMIMEAllowsMissingRecipient(t *testing.T) {
+	raw, err := AssembleDraftMIME(Draft{
+		Headers: Headers{
+			ActiveAccountID: "acct-1",
+			SendAs:          NewAddress("me@example.com"),
+			Subject:         "Draft",
+		},
+		Body: BodySource{PlainText: "saved for later"},
+	})
+	if err != nil {
+		t.Fatalf("assemble draft mime: %v", err)
+	}
+
+	message, err := mail.ReadMessage(strings.NewReader(string(raw)))
+	if err != nil {
+		t.Fatalf("parse draft mime: %v", err)
+	}
+	if message.Header.Get("To") != "" || message.Header.Get("Subject") != "Draft" {
+		t.Fatalf("headers = %#v", message.Header)
+	}
+}
+
+func TestAssembleMIMESanitizesHeadersAndEncodesUTF8Body(t *testing.T) {
+	raw, err := AssembleMIME(Draft{
+		Headers: Headers{
+			ActiveAccountID: "acct-1",
+			SendAs:          NewAddress("me@example.com"),
+			To:              []Address{NewAddress("you@example.com")},
+			Subject:         "Hello\r\nBcc: injected@example.com",
+		},
+		Body: BodySource{PlainText: "Café"},
+	})
+	if err != nil {
+		t.Fatalf("assemble mime: %v", err)
+	}
+
+	message, err := ParseMIMEMessage(raw)
+	if err != nil {
+		t.Fatalf("parse mime: %v", err)
+	}
+	if message.Header.Get("Bcc") != "" {
+		t.Fatalf("unexpected injected bcc header: %#v", message.Header)
+	}
+	if got := message.Header.Get("Subject"); got != "Hello Bcc: injected@example.com" {
+		t.Fatalf("subject = %q", got)
+	}
+	if got := message.Header.Get("Content-Transfer-Encoding"); got != "quoted-printable" {
+		t.Fatalf("cte = %q", got)
 	}
 }
