@@ -49,7 +49,7 @@ Grounded in `prd.md` sections 7, 8, 9, 10, 11, 16, 19, 20, and milestone M1.
   - Allow replacing credentials through a command-mode action with confirmation.
   - Validation: `go test ./internal/auth/...` covers credential validation and keyring persistence using a fake keyring.
 
-- [ ] **Task 2.8**: Implement loopback OAuth flow
+- [x] **Task 2.8**: Implement loopback OAuth flow
   - Generate a random localhost port, state token, auth URL, and short-lived HTTP callback server.
   - Open the browser with the auth URL and exchange the returned code for an OAuth token.
   - Use `gmail.modify`, `gmail.send`, and `userinfo.email` scopes.
