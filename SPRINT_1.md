@@ -7,7 +7,7 @@
 Grounded in `prd.md` sections 5, 6, 12, 15, 16, 20, and milestone M0.
 
 ## Tasks
-- [ ] **Task 1.1**: Scaffold the Go module and command entrypoint
+- [x] **Task 1.1**: Scaffold the Go module and command entrypoint
   - Create `go.mod` with module path `github.com/<owner>/gandt` until the final owner is known.
   - Add `cmd/gandt/main.go` that constructs and runs the root Bubble Tea program.
   - Keep root package exports empty for v1 unless a concrete need appears.
