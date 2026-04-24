@@ -31,7 +31,7 @@ Grounded in `prd.md` sections 8, 9, 13.3, 13.5, 13.7, 13.8, 14, 15, 17, 19, 20, 
   - Clean up temp files without losing text on editor failure.
   - Validation: `go test ./internal/compose/...` uses fake editor commands for success, failure, unset editor, and tempfile cleanup.
 
-- [ ] **Task 8.5**: Implement inline compose body editor
+- [x] **Task 8.5**: Implement inline compose body editor
   - Use Bubbles textarea for inline mode.
   - Support `Ctrl+E` to open the current body in `$EDITOR`.
   - Preserve body contents through resize, validation errors, and draft save.
