@@ -73,7 +73,7 @@ Grounded in `prd.md` sections 7, 10, 11, 16, 17, 18, 20, and milestone M2.
   - Recreate schema cleanly on next startup.
   - Validation: `go test ./internal/ui ./internal/cache` covers confirmation, cancel, wipe, and remigrate behavior.
 
-- [ ] **Task 5.12**: Update schema and cache-control docs
+- [x] **Task 5.12**: Update schema and cache-control docs
   - Keep `docs/schema.md` current with any query or policy semantics added during this sprint.
   - Add README sections for cache location, privacy controls, purge commands, and at-rest encryption non-goal.
   - Include examples for cache policies and exclusions.

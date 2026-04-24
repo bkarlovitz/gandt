@@ -227,6 +227,46 @@ Indexes:
 
 - `idx_exclusions_match` on `(account_id, match_type, match_value)`.
 
+## Cache Control Semantics
+
+Policy precedence is:
+
+1. Explicit `sync_policies` row written by `:cache-policy`.
+2. Matching `[[cache.policies]]` entry from `config.toml`.
+3. Account default row where `label_id = '*'`.
+4. Global `[cache.defaults]` values from config defaults.
+
+Config-file policies are not copied into SQLite unless the user edits and saves
+that label in `:cache-policy`. Resetting a label policy deletes the explicit row
+and returns the effective policy to the next configured source.
+
+Exclusions are account-scoped rows in `cache_exclusions`. `sender` values are
+normalized to the email address, `domain` values are lowercase without a leading
+`@`, and `label` values match Gmail label IDs. Sync may fetch excluded message
+metadata transiently to decide whether a message matches, but excluded message
+bodies are not written to `messages`. Confirmed exclusions purge already cached
+matching message rows.
+
+Purge planning is non-destructive. `:cache-purge` supports `--account`,
+`--label`, `--older-than`, `--from`, and `--dry-run`; it reports candidate
+message, body, attachment, and byte counts before any deletion. Confirmed purge
+deletes matching rows from `messages`; foreign-key cascades remove child rows in
+`message_labels`, `attachments`, `messages_fts`, and annotations. Local
+attachment files referenced by `attachments.local_path` are removed before the
+rows are deleted. After a purge G&T runs `PRAGMA wal_checkpoint(TRUNCATE)`.
+`:cache-compact` runs `VACUUM`.
+
+Retention sweep uses each message's effective policies across all current
+labels. A message is pruned only when its timestamp is older than every finite
+retention window on its labels. Any label with no retention limit keeps the
+message. Messages matching exclusions are pruned during the sweep, with the same
+attachment cleanup as purge.
+
+`:cache-wipe` is deliberately broader than purge: after two confirmations it
+removes `cache.db`, `cache.db-wal`, `cache.db-shm`, and cached attachment files.
+It does not remove account OAuth tokens or client credentials from the OS
+keychain.
+
 ### `message_annotations`
 
 Reserved namespace for future downstream tools. G&T v1 core creates this table

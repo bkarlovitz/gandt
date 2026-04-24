@@ -86,6 +86,56 @@ attachment_rule = "under_size"
 attachment_max_mb = 10
 total_budget_mb = 2000
 
+[[cache.policies]]
+account = "me@example.com"
+label = "Receipts"
+depth = "body"
+retention_days = 365
+attachment_rule = "none"
+
+[[cache.exclusions]]
+account = "me@example.com"
+match_type = "domain"
+match_value = "private.example"
+
 [paths]
 downloads = "~/Downloads"
 ```
+
+Cache policy precedence is explicit DB row, config policy, account default, then
+global default. Editing a label in `:cache-policy` writes an explicit DB row;
+resetting it returns to the next configured source.
+
+## Cache Controls
+
+The SQLite cache is `$XDG_DATA_HOME/gandt/cache.db`. Cached attachment files live
+under `$XDG_DATA_HOME/gandt/attachments/` when downloaded by G&T. The cache is a
+plain SQLite database in WAL mode and is intentionally readable by stock SQLite
+tools.
+
+Commands:
+
+- `:cache` opens the dashboard with size, row, age, attachment, FTS, account, and
+  label summaries.
+- `:cache-policy` opens the policy table editor. Use `j/k` to move, `d` to cycle
+  depth, `t` for retention, `a` for attachment rule, `s` to save, and `x` to
+  reset to default.
+- `:cache-exclude <sender|domain|label> <value>` previews matching cached rows,
+  then requires `y` to confirm or `n` to cancel.
+- `:cache-purge --account <email> --label <id> --older-than <days|Nd> --from
+  <sender> --dry-run` previews matching rows. Without `--dry-run`, confirm with
+  `y` before deletion.
+- `:cache-compact` runs SQLite `VACUUM`.
+- `:cache-wipe` removes the SQLite cache and cached attachments after two `y`
+  confirmations.
+
+Privacy controls are policy and exclusion based. Excluded senders, domains, and
+labels are never persisted as bodies; already cached matching rows can be purged
+after confirmation. Retention sweep removes messages only when they are outside
+the retention window for every label on the message.
+
+At-rest encryption is not a v1 goal. Message bodies in SQLite and downloaded
+attachments are unencrypted local files. Users who need at-rest protection should
+use OS or disk encryption such as FileVault, LUKS, or BitLocker. OAuth client
+credentials and tokens are stored in the OS keychain, not in `cache.db`, and
+cache purge/wipe commands do not remove them.
