@@ -19,7 +19,7 @@ Grounded in `prd.md` sections 5, 6, 12, 15, 16, 20, and milestone M0.
   - Document any dependency deferred until its sprint if adding all dependencies upfront creates unused-code churn.
   - Validation: `CGO_ENABLED=0 go test ./...` passes.
 
-- [ ] **Task 1.3**: Add development build and quality commands
+- [x] **Task 1.3**: Add development build and quality commands
   - Add `Makefile` targets for `fmt`, `test`, `lint` or `vet`, `run`, and `build`.
   - Add a `scripts/` helper only where a Make target would become hard to read.
   - Ensure all commands work on macOS and Linux shells without project-specific absolute paths.
