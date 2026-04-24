@@ -173,6 +173,38 @@ func migratedMainTestDB(t *testing.T) *sqlx.DB {
 	return db
 }
 
+func TestResolveRefreshAccountSupportsActiveDefaultAndInvalidAccount(t *testing.T) {
+	accounts := []cache.Account{
+		{ID: "acct-1", Email: "one@example.com"},
+		{ID: "acct-2", Email: "two@example.com"},
+	}
+
+	got, err := resolveRefreshAccount(accounts, "")
+	if err != nil {
+		t.Fatalf("default account: %v", err)
+	}
+	if got.ID != "acct-1" {
+		t.Fatalf("default account = %#v, want first account", got)
+	}
+	got, err = resolveRefreshAccount(accounts, "TWO@example.com")
+	if err != nil {
+		t.Fatalf("email account: %v", err)
+	}
+	if got.ID != "acct-2" {
+		t.Fatalf("email account = %#v, want second account", got)
+	}
+	got, err = resolveRefreshAccount(accounts, "acct-2")
+	if err != nil {
+		t.Fatalf("id account: %v", err)
+	}
+	if got.Email != "two@example.com" {
+		t.Fatalf("id account = %#v, want second account", got)
+	}
+	if _, err := resolveRefreshAccount(accounts, "missing@example.com"); err == nil || !strings.Contains(err.Error(), "missing@example.com") {
+		t.Fatalf("missing account err = %v, want unknown account", err)
+	}
+}
+
 func seedMainTestAccount(t *testing.T, db *sqlx.DB) cache.Account {
 	t.Helper()
 

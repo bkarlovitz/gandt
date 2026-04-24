@@ -61,7 +61,7 @@ Grounded in `prd.md` sections 1, 3, 4, 7, 8, 10, 12, 13.1, 13.6, 16, 20, and mil
   - Show policy differences in the cache dashboard and policy editor.
   - Validation: `go test ./internal/sync ./internal/ui` covers two accounts with conflicting policies and expected fetch decisions.
 
-- [ ] **Task 6.10**: Update commands for account-aware behavior
+- [x] **Task 6.10**: Update commands for account-aware behavior
   - Ensure `:cache`, `:cache-policy`, `:cache-purge`, `:sync-all`, `:add-account`, and `:remove-account` all handle multiple accounts.
   - Add account filter or selector prompts where required.
   - Preserve sensible defaults for active-account commands.

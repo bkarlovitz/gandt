@@ -652,14 +652,21 @@ func runOneAccountRefresh(ctx context.Context, paths config.Paths, cfg config.Co
 	if len(accounts) == 0 {
 		return gandtsync.AccountSyncResult{Status: "sync skipped: no accounts configured"}, nil
 	}
-	account := accounts[0]
-	if request.Account != "" {
-		for _, candidate := range accounts {
-			if candidate.Email == request.Account {
-				account = candidate
-				break
+	if request.Kind == ui.RefreshAll {
+		return gandtsync.RunAccountsIndependently(ctx, accounts, gandtsync.AccountRunnerFunc(func(ctx context.Context, account cache.Account) (gandtsync.AccountSyncResult, error) {
+			gmailClient, err := gmailClientForAccount(ctx, account.ID)
+			if err != nil {
+				return gandtsync.AccountSyncResult{}, err
 			}
-		}
+			result, err := gandtsync.NewDeltaSynchronizer(db, cfg, gmailClient, gandtsync.WithLogger(charmSyncLogger{})).Sync(ctx, account)
+			result.AccountID = account.ID
+			return result, err
+		}))
+	}
+
+	account, err := resolveRefreshAccount(accounts, request.Account)
+	if err != nil {
+		return gandtsync.AccountSyncResult{}, err
 	}
 	gmailClient, err := gmailClientForAccount(ctx, account.ID)
 	if err != nil {
@@ -683,6 +690,22 @@ func runOneAccountRefresh(ctx context.Context, paths config.Paths, cfg config.Co
 		}, nil
 	}
 	return gandtsync.NewDeltaSynchronizer(db, cfg, gmailClient, gandtsync.WithLogger(charmSyncLogger{})).Sync(ctx, account)
+}
+
+func resolveRefreshAccount(accounts []cache.Account, accountRef string) (cache.Account, error) {
+	if len(accounts) == 0 {
+		return cache.Account{}, fmt.Errorf("no accounts configured")
+	}
+	accountRef = strings.TrimSpace(accountRef)
+	if accountRef == "" {
+		return accounts[0], nil
+	}
+	for _, account := range accounts {
+		if account.ID == accountRef || strings.EqualFold(account.Email, accountRef) {
+			return account, nil
+		}
+	}
+	return cache.Account{}, fmt.Errorf("account %q not found", accountRef)
 }
 
 func buildTriageActor(paths config.Paths) ui.TriageActor {
