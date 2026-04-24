@@ -61,7 +61,7 @@ Grounded in `prd.md` sections 7, 10, 11, 16, 17, 18, 20, and milestone M2.
   - Keep deletion failures recoverable and logged.
   - Validation: `go test ./internal/cache/...` covers purge mutation, attachment path deletion, WAL checkpoint invocation, and compact command.
 
-- [ ] **Task 5.10**: Implement retention sweep
+- [x] **Task 5.10**: Implement retention sweep
   - Run retention once per day and on startup.
   - Prune rows only when a message is outside the retention window across all labels' effective policies.
   - Respect exclusions and attachment cleanup.

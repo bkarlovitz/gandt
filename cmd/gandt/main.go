@@ -158,6 +158,7 @@ func buildCredentialReplacer() ui.CredentialReplacer {
 }
 
 func buildSyncCoordinator(paths config.Paths, cfg config.Config) ui.SyncCoordinator {
+	retentionSchedule := gandtsync.NewRetentionSchedule()
 	return gandtsync.NewCoordinator(cfg, gandtsync.SyncRunnerFunc(func(ctx context.Context) (gandtsync.AccountSyncResult, error) {
 		db, err := cache.Open(ctx, paths)
 		if err != nil {
@@ -177,6 +178,12 @@ func buildSyncCoordinator(paths config.Paths, cfg config.Config) ui.SyncCoordina
 		}
 
 		account := accounts[0]
+		now := time.Now().UTC()
+		if retentionSchedule.ShouldRun(account.ID, now) {
+			if _, err := gandtsync.NewRetentionSweeper(db, cfg).Sweep(ctx, account, now); err != nil {
+				return gandtsync.AccountSyncResult{}, err
+			}
+		}
 		gmailClient, err := gmailClientForAccount(ctx, account.ID)
 		if err != nil {
 			return gandtsync.AccountSyncResult{}, err
@@ -832,6 +839,9 @@ func loadInitialMailbox(paths config.Paths, cfg config.Config) (ui.Mailbox, bool
 	}
 
 	account := accounts[0]
+	if _, err := gandtsync.NewRetentionSweeper(db, cfg).Sweep(ctx, account, time.Now().UTC()); err != nil {
+		return ui.AuthFailureMailbox(err.Error()), true
+	}
 	labels, err := cache.NewLabelRepository(db).List(ctx, account.ID)
 	if err != nil {
 		return ui.AuthFailureMailbox(err.Error()), true

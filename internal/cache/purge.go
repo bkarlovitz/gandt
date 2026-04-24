@@ -84,6 +84,15 @@ func (s CachePurgeService) Execute(ctx context.Context, filter CachePurgeFilter,
 	if err != nil {
 		return CachePurgeResult{}, err
 	}
+	return s.ExecutePlan(ctx, plan)
+}
+
+func (s CachePurgeService) ExecutePlan(ctx context.Context, plan CachePurgePlan) (CachePurgeResult, error) {
+	if len(plan.MessageKeys) > 0 && plan.MessageCount == 0 {
+		if err := s.populatePurgePlanCounts(ctx, &plan); err != nil {
+			return CachePurgeResult{}, err
+		}
+	}
 	result := CachePurgeResult{Plan: plan}
 	if len(plan.MessageKeys) == 0 {
 		return result, nil
