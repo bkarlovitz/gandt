@@ -126,6 +126,9 @@ func (k KeyMap) HelpText() string {
 		help := k.Binding(action).Help()
 		lines = append(lines, help.Key+"  "+help.Desc)
 	}
+	lines = append(lines, ":add-account  add Gmail account")
+	lines = append(lines, ":replace-credentials  replace OAuth client")
+	lines = append(lines, ":oauth-help  OAuth setup")
 	lines = append(lines, "Esc  close help")
 	return strings.Join(lines, "\n")
 }

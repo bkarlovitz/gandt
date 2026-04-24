@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/bkarlovitz/gandt/internal/auth"
 	"github.com/bkarlovitz/gandt/internal/config"
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -27,7 +28,7 @@ func TestAddAccountCommandShowsLoadingAndSuccess(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("expected add-account command")
 	}
-	if !got.addingAccount || got.statusMessage != "adding account..." {
+	if !got.addingAccount || got.statusMessage != "adding account... first run asks for one Desktop OAuth client" {
 		t.Fatalf("adding=%v status=%q, want loading state", got.addingAccount, got.statusMessage)
 	}
 
@@ -165,6 +166,37 @@ func TestReplaceCredentialsCommandShowsError(t *testing.T) {
 	}
 	if got.statusMessage != "replace credentials failed: canceled" {
 		t.Fatalf("status = %q, want failure message", got.statusMessage)
+	}
+}
+
+func TestAddAccountCommandShowsKeyringError(t *testing.T) {
+	model := New(config.Default(), WithAccountAdder(AccountAdderFunc(func() (AccountAddResult, error) {
+		return AccountAddResult{}, auth.ErrKeyringUnavailable
+	})))
+
+	updated, cmd := submitTestCommand(model, "add-account")
+	if cmd == nil {
+		t.Fatal("expected add-account command")
+	}
+
+	updated, _ = updated.(Model).Update(cmd())
+	got := updated.(Model)
+	want := "add account failed: keychain inaccessible; unlock the OS keychain and retry"
+	if got.statusMessage != want || got.toastMessage != want {
+		t.Fatalf("status/toast = %q/%q, want %q", got.statusMessage, got.toastMessage, want)
+	}
+}
+
+func TestOAuthHelpCommand(t *testing.T) {
+	model := New(config.Default())
+
+	updated, cmd := submitTestCommand(model, "oauth-help")
+	got := updated.(Model)
+	if cmd == nil {
+		t.Fatal("expected toast timer command")
+	}
+	if got.statusMessage != oauthHelpMessage || got.toastMessage != oauthHelpMessage {
+		t.Fatalf("status/toast = %q/%q, want OAuth help", got.statusMessage, got.toastMessage)
 	}
 }
 

@@ -74,11 +74,21 @@ Do not use personal or production mailboxes for destructive actions such as spam
 
 ## 3. Add Three Gmail Accounts
 
+- [ ] Prepare one Google Desktop OAuth client for this QA pass:
+  - Create or select one Google Cloud project.
+  - Enable the Gmail API.
+  - Configure the Google Auth platform consent screen.
+  - Create one OAuth client with application type `Desktop app`.
+  - If the OAuth app is in testing mode, add Accounts A, B, and C as test users.
+  - Keep the generated client ID and client secret ready for G&T.
+
+  Expected: one Desktop OAuth client ID and secret are available. Reuse this same client for all three Gmail accounts; do not create one client per Gmail account.
+
 - [ ] Add Account A:
   - Press `:`.
   - Type `add-account`.
   - Press `Enter`.
-  - If prompted, enter the Google Desktop OAuth client ID and secret.
+  - If prompted, enter the Google Desktop OAuth client ID and secret created above.
   - Complete the browser OAuth flow for Account A.
 
   Expected: Account A appears in the mailbox, labels appear after bootstrap, and the status bar reports success or sync progress.

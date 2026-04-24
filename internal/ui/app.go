@@ -373,7 +373,8 @@ func (m Model) Update(msg tea.Msg) (updated tea.Model, cmd tea.Cmd) {
 	case addAccountDoneMsg:
 		m.addingAccount = false
 		if msg.Err != nil {
-			m.statusMessage = "add account failed: " + msg.Err.Error()
+			m.statusMessage = operationFailedStatus("add account", msg.Err, m.mailbox.Account)
+			m.toastMessage = m.statusMessage
 			return m, nil
 		}
 		m.statusMessage = fmt.Sprintf("added account %s", msg.Result.Account)
@@ -392,7 +393,8 @@ func (m Model) Update(msg tea.Msg) (updated tea.Model, cmd tea.Cmd) {
 		m.removingAccount = false
 		m.pendingRemoveAccount = ""
 		if msg.Err != nil {
-			m.statusMessage = "remove account failed: " + msg.Err.Error()
+			m.statusMessage = operationFailedStatus("remove account", msg.Err, m.mailbox.Account)
+			m.toastMessage = m.statusMessage
 			return m, nil
 		}
 		if msg.Result.RevokeError {
@@ -410,7 +412,8 @@ func (m Model) Update(msg tea.Msg) (updated tea.Model, cmd tea.Cmd) {
 	case replaceCredentialsDoneMsg:
 		m.replacingCreds = false
 		if msg.Err != nil {
-			m.statusMessage = "replace credentials failed: " + msg.Err.Error()
+			m.statusMessage = operationFailedStatus("replace credentials", msg.Err, m.mailbox.Account)
+			m.toastMessage = m.statusMessage
 			return m, nil
 		}
 		m.statusMessage = "replaced OAuth client credentials"
@@ -1477,6 +1480,10 @@ func (m Model) submitCommand() (tea.Model, tea.Cmd) {
 	}
 
 	switch commandName {
+	case "oauth-help":
+		m.statusMessage = oauthHelpMessage
+		m.toastMessage = m.statusMessage
+		return m, nil
 	case "add-account":
 		if m.addingAccount || m.removingAccount || m.replacingCreds {
 			m.statusMessage = "account operation already running"
@@ -1487,7 +1494,7 @@ func (m Model) submitCommand() (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.addingAccount = true
-		m.statusMessage = "adding account..."
+		m.statusMessage = "adding account... first run asks for one Desktop OAuth client"
 		return m, m.runAddAccount()
 	case "remove-account":
 		if m.addingAccount || m.removingAccount || m.replacingCreds {
@@ -1947,6 +1954,12 @@ func userFacingError(err error, account string) string {
 	default:
 		return err.Error()
 	}
+}
+
+const oauthHelpMessage = "OAuth setup: create one Google Desktop OAuth client with Gmail API; reuse it for all accounts; run :add-account"
+
+func operationFailedStatus(operation string, err error, account string) string {
+	return operation + " failed: " + userFacingError(err, account)
 }
 
 func (m Model) startRefresh(kind RefreshKind) (tea.Model, tea.Cmd) {

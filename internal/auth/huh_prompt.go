@@ -13,11 +13,16 @@ func (HuhCredentialPrompt) PromptClientCredentials(ctx context.Context) (ClientC
 	var clientSecret string
 
 	form := huh.NewForm(huh.NewGroup(
+		huh.NewNote().
+			Title("Google OAuth setup").
+			Description("Use one Google Desktop OAuth client for all Gmail accounts. Enable Gmail API in Google Cloud, then paste the client ID and secret here."),
 		huh.NewInput().
 			Title("Google OAuth client ID").
+			Description("From Google Auth platform > Clients > Desktop app. Stored in the OS keychain.").
 			Value(&clientID),
 		huh.NewInput().
 			Title("Google OAuth client secret").
+			Description("Stored in the OS keychain and never written to config.toml.").
 			EchoMode(huh.EchoModePassword).
 			Value(&clientSecret),
 	))

@@ -49,15 +49,17 @@ Launch without accounts to inspect the TUI:
 gandt
 ```
 
+G&T uses a bring-your-own Google OAuth client for v1. Create one Google Cloud project, enable Gmail API, configure the Google Auth platform, and create one OAuth client with application type `Desktop app`. That single client ID and secret are app credentials; reuse them for every Gmail account you add. Add each Gmail account as a test user while the OAuth app is in testing mode.
+
 Add a Gmail account from command mode:
 
 ```text
 :add-account
 ```
 
-The account flow asks for Google Desktop OAuth client credentials, opens a browser for consent, stores credentials and tokens in the OS keychain, then backfills Gmail metadata and policy-selected bodies into the local cache.
+The first account flow asks for the Google Desktop OAuth client ID and secret, opens a browser for account consent, stores app credentials and account tokens in the OS keychain, then backfills Gmail metadata and policy-selected bodies into the local cache. Later accounts reuse the same app credentials and only need their own browser consent.
 
-Use `:replace-credentials` to replace the stored Google OAuth client credentials. If Gmail access is revoked, re-authenticate the account with `:add-account`.
+Use `:oauth-help` for a short in-app reminder, and `:replace-credentials` to replace the stored Google OAuth client credentials. If Gmail access is revoked, re-authenticate the account with `:add-account`.
 
 ## Local Files
 
