@@ -37,7 +37,7 @@ Grounded in `prd.md` sections 8, 9, 13.3, 13.5, 13.7, 13.8, 14, 15, 17, 19, 20, 
   - Preserve body contents through resize, validation errors, and draft save.
   - Validation: `go test ./internal/ui/...` covers inline editing, external handoff, resize, and cancel confirmation.
 
-- [ ] **Task 8.6**: Implement reply, reply-all, and forward quoting
+- [x] **Task 8.6**: Implement reply, reply-all, and forward quoting
   - Add attribution line `On $date, $from wrote:`.
   - Prefix quoted lines with `> `.
   - Reply-all includes original To and Cc minus the user's own address.
