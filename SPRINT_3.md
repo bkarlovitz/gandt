@@ -37,7 +37,7 @@ Grounded in `prd.md` sections 7, 9, 10, 12, 13.2, 13.3, 14, 17, 18, 20, and mile
   - Record `cached_at` only when a body is persisted.
   - Validation: `go test ./internal/sync/...` verifies database rows after fixture sync and confirms excluded messages are absent.
 
-- [ ] **Task 3.6**: Implement MIME body extraction
+- [x] **Task 3.6**: Implement MIME body extraction
   - Prefer `text/plain`, fall back to `text/html`, and preserve attachment metadata.
   - Decode Gmail base64url payloads and nested MIME parts.
   - Keep raw HTML nullable and persist only when policy depth allows it.
