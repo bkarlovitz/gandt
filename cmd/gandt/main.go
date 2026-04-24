@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/bkarlovitz/gandt/internal/config"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -39,6 +40,16 @@ func main() {
 	if *showVersion {
 		fmt.Println(version)
 		return
+	}
+
+	paths, err := config.DefaultPaths()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "gandt: resolve paths: %v\n", err)
+		os.Exit(1)
+	}
+	if err := config.EnsureDirs(paths); err != nil {
+		fmt.Fprintf(os.Stderr, "gandt: create data directories: %v\n", err)
+		os.Exit(1)
 	}
 
 	program := tea.NewProgram(model{}, tea.WithAltScreen())

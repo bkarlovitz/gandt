@@ -31,7 +31,7 @@ Grounded in `prd.md` sections 5, 6, 12, 15, 16, 20, and milestone M0.
   - Run formatting, tests, `go vet`, and a static binary build check.
   - Validation: a pull request shows all CI jobs green.
 
-- [ ] **Task 1.5**: Implement XDG path resolution
+- [x] **Task 1.5**: Implement XDG path resolution
   - Add `internal/config` helpers for `$XDG_CONFIG_HOME/gandt` and `$XDG_DATA_HOME/gandt`.
   - Resolve defaults on macOS, Linux, and best-effort Windows.
   - Create config, data, attachment, and log directories on startup with conservative permissions.
