@@ -55,7 +55,7 @@ Grounded in `prd.md` sections 9, 10, 13.6, 17, 18, 20, and milestone M2.
   - Update cached label mappings and label counts after success.
   - Validation: `go test ./internal/ui/...` covers prompt flows, cancel behavior, and selected-label updates.
 
-- [ ] **Task 4.9**: Implement rate-limit and auth error handling
+- [x] **Task 4.9**: Implement rate-limit and auth error handling
   - Add exponential backoff for 429 and transient 5xx responses.
   - Surface "re-authenticate <account>" prompts for revoked or expired refresh tokens.
   - Keep non-fatal errors as toasts and fatal cache/keychain errors as clear error screens.

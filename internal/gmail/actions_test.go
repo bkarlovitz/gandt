@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"testing"
+	"time"
 )
 
 func TestClientBatchModifyMessagesBuildsRequest(t *testing.T) {
@@ -168,10 +169,77 @@ func TestActionWrappersNormalizeAuthAndPermissionErrors(t *testing.T) {
 					},
 				})
 			})
+			client.SetRetryPolicy(RetryPolicy{MaxAttempts: 1})
 			err := client.TrashMessage(context.Background(), "msg-1")
 			if !errors.Is(err, tt.want) {
 				t.Fatalf("error = %v, want %v", err, tt.want)
 			}
 		})
+	}
+}
+
+func TestClientRetriesRateLimitWithExponentialBackoff(t *testing.T) {
+	calls := 0
+	client := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if calls < 3 {
+			w.WriteHeader(http.StatusTooManyRequests)
+			writeJSON(t, w, map[string]any{
+				"error": map[string]any{
+					"code":    429,
+					"message": "rate limit",
+					"errors": []map[string]string{
+						{"reason": "rateLimitExceeded", "message": "rate limit"},
+					},
+				},
+			})
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+	delays := []time.Duration{}
+	client.SetRetryPolicy(RetryPolicy{
+		MaxAttempts: 3,
+		BaseDelay:   time.Second,
+		MaxDelay:    10 * time.Second,
+		Sleep: func(ctx context.Context, delay time.Duration) error {
+			delays = append(delays, delay)
+			return nil
+		},
+	})
+
+	if err := client.BatchModifyMessages(context.Background(), MessageModifyRequest{IDs: []string{"msg-1"}, RemoveLabelIDs: []string{"INBOX"}}); err != nil {
+		t.Fatalf("batch modify retry: %v", err)
+	}
+	if calls != 3 {
+		t.Fatalf("calls = %d, want 3", calls)
+	}
+	if len(delays) != 2 || delays[0] != time.Second || delays[1] != 2*time.Second {
+		t.Fatalf("delays = %#v, want exponential backoff", delays)
+	}
+}
+
+func TestClientRetryExhaustionReturnsRateLimit(t *testing.T) {
+	client := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusTooManyRequests)
+		writeJSON(t, w, map[string]any{
+			"error": map[string]any{
+				"code":    429,
+				"message": "rate limit",
+				"errors": []map[string]string{
+					{"reason": "rateLimitExceeded", "message": "rate limit"},
+				},
+			},
+		})
+	})
+	client.SetRetryPolicy(RetryPolicy{
+		MaxAttempts: 2,
+		BaseDelay:   time.Millisecond,
+		Sleep:       func(context.Context, time.Duration) error { return nil },
+	})
+
+	err := client.TrashMessage(context.Background(), "msg-1")
+	if !errors.Is(err, ErrRateLimited) {
+		t.Fatalf("error = %v, want ErrRateLimited after retry exhaustion", err)
 	}
 }

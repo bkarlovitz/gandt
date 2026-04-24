@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/bkarlovitz/gandt/internal/config"
+	"github.com/bkarlovitz/gandt/internal/gmail"
 )
 
 func TestCoordinatorUsesActiveAndIdleIntervals(t *testing.T) {
@@ -92,6 +93,25 @@ func TestCoordinatorSurfacesSyncErrors(t *testing.T) {
 	update := <-done
 	if update.Err == nil || update.Summary != "sync failed: network down" {
 		t.Fatalf("update = %#v, want surfaced sync error", update)
+	}
+}
+
+func TestCoordinatorSurfacesRateLimitExhaustion(t *testing.T) {
+	cfg := config.Default()
+	clock := newFakeClock()
+	coordinator := NewCoordinator(cfg, SyncRunnerFunc(func(context.Context) (AccountSyncResult, error) {
+		return AccountSyncResult{}, gmail.ErrRateLimited
+	}), WithClock(clock))
+
+	done := make(chan CoordinatorUpdate, 1)
+	go func() {
+		done <- coordinator.Next(context.Background(), true)
+	}()
+	clock.waitForAfter(t)
+	clock.tick()
+	update := <-done
+	if !errors.Is(update.Err, gmail.ErrRateLimited) || update.Summary != "sync failed: gmail rate limited" {
+		t.Fatalf("update = %#v, want rate-limit sync failure", update)
 	}
 }
 

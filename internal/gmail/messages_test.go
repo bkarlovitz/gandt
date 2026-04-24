@@ -196,6 +196,7 @@ func TestClientNormalizesGmailErrors(t *testing.T) {
 			},
 		})
 	})
+	client.SetRetryPolicy(RetryPolicy{MaxAttempts: 1})
 
 	_, err := client.GetMessageMetadata(context.Background(), "missing")
 	if !errors.Is(err, ErrRateLimited) {

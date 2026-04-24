@@ -25,6 +25,7 @@ type Label struct {
 
 type Client struct {
 	service *gmailapi.Service
+	retry   RetryPolicy
 }
 
 func NewClient(ctx context.Context, opts ...option.ClientOption) (*Client, error) {
@@ -32,13 +33,17 @@ func NewClient(ctx context.Context, opts ...option.ClientOption) (*Client, error
 	if err != nil {
 		return nil, fmt.Errorf("create gmail service: %w", err)
 	}
-	return &Client{service: service}, nil
+	return &Client{service: service, retry: DefaultRetryPolicy()}, nil
 }
 
 func (c *Client) Profile(ctx context.Context) (Profile, error) {
-	profile, err := c.service.Users.GetProfile("me").Context(ctx).Do()
-	if err != nil {
-		return Profile{}, normalizeError("get gmail profile", err)
+	var profile *gmailapi.Profile
+	if err := c.withRetry(ctx, "get gmail profile", func() error {
+		var err error
+		profile, err = c.service.Users.GetProfile("me").Context(ctx).Do()
+		return err
+	}); err != nil {
+		return Profile{}, err
 	}
 	return Profile{
 		EmailAddress: profile.EmailAddress,
@@ -47,9 +52,13 @@ func (c *Client) Profile(ctx context.Context) (Profile, error) {
 }
 
 func (c *Client) Labels(ctx context.Context) ([]Label, error) {
-	response, err := c.service.Users.Labels.List("me").Context(ctx).Do()
-	if err != nil {
-		return nil, normalizeError("list gmail labels", err)
+	var response *gmailapi.ListLabelsResponse
+	if err := c.withRetry(ctx, "list gmail labels", func() error {
+		var err error
+		response, err = c.service.Users.Labels.List("me").Context(ctx).Do()
+		return err
+	}); err != nil {
+		return nil, err
 	}
 
 	labels := make([]Label, 0, len(response.Labels))

@@ -36,8 +36,10 @@ func (c *Client) BatchModifyMessages(ctx context.Context, request MessageModifyR
 		AddLabelIds:    append([]string{}, request.AddLabelIDs...),
 		RemoveLabelIds: append([]string{}, request.RemoveLabelIDs...),
 	}
-	if err := c.service.Users.Messages.BatchModify("me", body).Context(ctx).Do(); err != nil {
-		return normalizeError("batch modify gmail messages", err)
+	if err := c.withRetry(ctx, "batch modify gmail messages", func() error {
+		return c.service.Users.Messages.BatchModify("me", body).Context(ctx).Do()
+	}); err != nil {
+		return err
 	}
 	return nil
 }
@@ -46,8 +48,11 @@ func (c *Client) TrashMessage(ctx context.Context, id string) error {
 	if id == "" {
 		return errors.New("message id is required")
 	}
-	if _, err := c.service.Users.Messages.Trash("me", id).Context(ctx).Do(); err != nil {
-		return normalizeError("trash gmail message", err)
+	if err := c.withRetry(ctx, "trash gmail message", func() error {
+		_, err := c.service.Users.Messages.Trash("me", id).Context(ctx).Do()
+		return err
+	}); err != nil {
+		return err
 	}
 	return nil
 }
@@ -56,8 +61,11 @@ func (c *Client) UntrashMessage(ctx context.Context, id string) error {
 	if id == "" {
 		return errors.New("message id is required")
 	}
-	if _, err := c.service.Users.Messages.Untrash("me", id).Context(ctx).Do(); err != nil {
-		return normalizeError("untrash gmail message", err)
+	if err := c.withRetry(ctx, "untrash gmail message", func() error {
+		_, err := c.service.Users.Messages.Untrash("me", id).Context(ctx).Do()
+		return err
+	}); err != nil {
+		return err
 	}
 	return nil
 }
@@ -70,8 +78,11 @@ func (c *Client) ModifyThread(ctx context.Context, request ThreadModifyRequest) 
 		AddLabelIds:    append([]string{}, request.AddLabelIDs...),
 		RemoveLabelIds: append([]string{}, request.RemoveLabelIDs...),
 	}
-	if _, err := c.service.Users.Threads.Modify("me", request.ThreadID, body).Context(ctx).Do(); err != nil {
-		return normalizeError("modify gmail thread", err)
+	if err := c.withRetry(ctx, "modify gmail thread", func() error {
+		_, err := c.service.Users.Threads.Modify("me", request.ThreadID, body).Context(ctx).Do()
+		return err
+	}); err != nil {
+		return err
 	}
 	return nil
 }
@@ -91,9 +102,13 @@ func (c *Client) CreateLabel(ctx context.Context, request LabelCreateRequest) (L
 			TextColor:       request.ColorFG,
 		}
 	}
-	label, err := c.service.Users.Labels.Create("me", body).Context(ctx).Do()
-	if err != nil {
-		return Label{}, normalizeError("create gmail label", err)
+	var label *gmailapi.Label
+	if err := c.withRetry(ctx, "create gmail label", func() error {
+		var err error
+		label, err = c.service.Users.Labels.Create("me", body).Context(ctx).Do()
+		return err
+	}); err != nil {
+		return Label{}, err
 	}
 	return convertLabel(label), nil
 }
@@ -102,8 +117,10 @@ func (c *Client) DeleteLabel(ctx context.Context, id string) error {
 	if id == "" {
 		return errors.New("label id is required")
 	}
-	if err := c.service.Users.Labels.Delete("me", id).Context(ctx).Do(); err != nil {
-		return normalizeError("delete gmail label", err)
+	if err := c.withRetry(ctx, "delete gmail label", func() error {
+		return c.service.Users.Labels.Delete("me", id).Context(ctx).Do()
+	}); err != nil {
+		return err
 	}
 	return nil
 }

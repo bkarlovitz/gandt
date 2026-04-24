@@ -114,26 +114,29 @@ type Thread struct {
 }
 
 func (c *Client) ListMessages(ctx context.Context, opts ListMessagesOptions) (ListMessagesPage, error) {
-	call := c.service.Users.Messages.List("me").Context(ctx)
-	if len(opts.LabelIDs) > 0 {
-		call.LabelIds(opts.LabelIDs...)
-	}
-	if opts.Query != "" {
-		call.Q(opts.Query)
-	}
-	if opts.PageToken != "" {
-		call.PageToken(opts.PageToken)
-	}
-	if opts.MaxResults > 0 {
-		call.MaxResults(opts.MaxResults)
-	}
-	if opts.IncludeSpamTrash {
-		call.IncludeSpamTrash(true)
-	}
-
-	response, err := call.Do()
-	if err != nil {
-		return ListMessagesPage{}, normalizeError("list gmail messages", err)
+	var response *gmailapi.ListMessagesResponse
+	if err := c.withRetry(ctx, "list gmail messages", func() error {
+		call := c.service.Users.Messages.List("me").Context(ctx)
+		if len(opts.LabelIDs) > 0 {
+			call.LabelIds(opts.LabelIDs...)
+		}
+		if opts.Query != "" {
+			call.Q(opts.Query)
+		}
+		if opts.PageToken != "" {
+			call.PageToken(opts.PageToken)
+		}
+		if opts.MaxResults > 0 {
+			call.MaxResults(opts.MaxResults)
+		}
+		if opts.IncludeSpamTrash {
+			call.IncludeSpamTrash(true)
+		}
+		var err error
+		response, err = call.Do()
+		return err
+	}); err != nil {
+		return ListMessagesPage{}, err
 	}
 
 	messages := make([]MessageRef, 0, len(response.Messages))
@@ -177,13 +180,17 @@ func (c *Client) GetThread(ctx context.Context, id string, format MessageFormat,
 	if format == "" {
 		format = MessageFormatFull
 	}
-	call := c.service.Users.Threads.Get("me", id).Format(string(format)).Context(ctx)
-	if format == MessageFormatMetadata && len(headers) > 0 {
-		call.MetadataHeaders(headers...)
-	}
-	response, err := call.Do()
-	if err != nil {
-		return Thread{}, normalizeError("get gmail thread", err)
+	var response *gmailapi.Thread
+	if err := c.withRetry(ctx, "get gmail thread", func() error {
+		call := c.service.Users.Threads.Get("me", id).Format(string(format)).Context(ctx)
+		if format == MessageFormatMetadata && len(headers) > 0 {
+			call.MetadataHeaders(headers...)
+		}
+		var err error
+		response, err = call.Do()
+		return err
+	}); err != nil {
+		return Thread{}, err
 	}
 	return convertThread(response), nil
 }
@@ -192,13 +199,17 @@ func (c *Client) getMessage(ctx context.Context, id string, format MessageFormat
 	if format == "" {
 		format = MessageFormatMetadata
 	}
-	call := c.service.Users.Messages.Get("me", id).Format(string(format)).Context(ctx)
-	if format == MessageFormatMetadata && len(headers) > 0 {
-		call.MetadataHeaders(headers...)
-	}
-	response, err := call.Do()
-	if err != nil {
-		return Message{}, normalizeError(fmt.Sprintf("get gmail message %s", id), err)
+	var response *gmailapi.Message
+	if err := c.withRetry(ctx, fmt.Sprintf("get gmail message %s", id), func() error {
+		call := c.service.Users.Messages.Get("me", id).Format(string(format)).Context(ctx)
+		if format == MessageFormatMetadata && len(headers) > 0 {
+			call.MetadataHeaders(headers...)
+		}
+		var err error
+		response, err = call.Do()
+		return err
+	}); err != nil {
+		return Message{}, err
 	}
 	return convertMessage(response), nil
 }

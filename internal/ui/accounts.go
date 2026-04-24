@@ -149,3 +149,31 @@ func IsOfflineError(err error) bool {
 	var offline interface{ Offline() bool }
 	return errors.As(err, &offline) && offline.Offline()
 }
+
+type FatalError struct {
+	Err error
+}
+
+func (err FatalError) Error() string {
+	if err.Err == nil {
+		return "fatal error"
+	}
+	return err.Err.Error()
+}
+
+func (err FatalError) Unwrap() error {
+	return err.Err
+}
+
+func (err FatalError) Fatal() bool {
+	return true
+}
+
+func MarkFatal(err error) error {
+	return FatalError{Err: err}
+}
+
+func IsFatalError(err error) bool {
+	var fatal interface{ Fatal() bool }
+	return errors.As(err, &fatal) && fatal.Fatal()
+}

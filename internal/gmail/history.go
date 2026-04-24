@@ -14,23 +14,26 @@ func (c *Client) ListHistory(ctx context.Context, opts ListHistoryOptions) (Hist
 		return HistoryPage{}, err
 	}
 
-	call := c.service.Users.History.List("me").StartHistoryId(startHistoryID).Context(ctx)
-	if opts.PageToken != "" {
-		call.PageToken(opts.PageToken)
-	}
-	if opts.MaxResults > 0 {
-		call.MaxResults(opts.MaxResults)
-	}
-	if opts.LabelID != "" {
-		call.LabelId(opts.LabelID)
-	}
-	if len(opts.HistoryTypes) > 0 {
-		call.HistoryTypes(opts.HistoryTypes...)
-	}
-
-	response, err := call.Do()
-	if err != nil {
-		return HistoryPage{}, normalizeError("list gmail history", err)
+	var response *gmailapi.ListHistoryResponse
+	if err := c.withRetry(ctx, "list gmail history", func() error {
+		call := c.service.Users.History.List("me").StartHistoryId(startHistoryID).Context(ctx)
+		if opts.PageToken != "" {
+			call.PageToken(opts.PageToken)
+		}
+		if opts.MaxResults > 0 {
+			call.MaxResults(opts.MaxResults)
+		}
+		if opts.LabelID != "" {
+			call.LabelId(opts.LabelID)
+		}
+		if len(opts.HistoryTypes) > 0 {
+			call.HistoryTypes(opts.HistoryTypes...)
+		}
+		var err error
+		response, err = call.Do()
+		return err
+	}); err != nil {
+		return HistoryPage{}, err
 	}
 	return convertHistoryPage(response), nil
 }

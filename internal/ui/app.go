@@ -2,12 +2,14 @@ package ui
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
 	"time"
 
 	"github.com/bkarlovitz/gandt/internal/config"
+	"github.com/bkarlovitz/gandt/internal/gmail"
 	gandtsync "github.com/bkarlovitz/gandt/internal/sync"
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -50,6 +52,7 @@ type Model struct {
 	commandInput          string
 	labelPrompt           labelPromptState
 	statusMessage         string
+	fatalError            string
 	offline               bool
 	addingAccount         bool
 	addAccount            AccountAdder
@@ -218,8 +221,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case refreshDoneMsg:
 		m.refreshingAccount = ""
 		if msg.Err != nil {
-			m.statusMessage = "sync failed: " + msg.Err.Error()
-			m.toastMessage = m.statusMessage
+			m.applyStatusOrError("sync failed: "+msg.Err.Error(), msg.Err, msg.Request.Account)
 			return m, nil
 		}
 		summary := msg.Result.Summary
@@ -240,8 +242,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.undo != nil && sameTriageRequest(m.undo.Request, msg.Request) {
 				m.undo = nil
 			}
-			m.statusMessage = "action failed: " + msg.Err.Error()
-			m.toastMessage = m.statusMessage
+			m.applyStatusOrError("action failed: "+msg.Err.Error(), msg.Err, msg.Request.Account)
 			return m, nil
 		}
 		summary := msg.Result.Summary
@@ -256,10 +257,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Stopped {
 			return m, nil
 		}
-		if msg.Summary != "" {
-			m.statusMessage = msg.Summary
-		}
+		m.applyStatusOrError(msg.Summary, msg.Err, m.mailbox.Account)
 		return m, m.runSyncCycle(m.consumeSyncActivity())
+	case ErrorMsg:
+		m.applyStatusOrError("", msg.Err, m.mailbox.Account)
 	case tea.KeyMsg:
 		return m.handleKey(msg)
 	}
@@ -270,6 +271,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m Model) View() string {
 	if m.quitting {
 		return ""
+	}
+	if m.fatalError != "" {
+		return "G&T\n\nFatal error: " + m.fatalError
 	}
 
 	if m.mode == ModeNormal {
@@ -645,6 +649,29 @@ func (m Model) runSyncCycle(active bool) tea.Cmd {
 			Fallback:  update.Fallback,
 		}
 	}
+}
+
+func (m *Model) applyStatusOrError(summary string, err error, account string) {
+	if err == nil {
+		if summary != "" {
+			m.statusMessage = summary
+		}
+		return
+	}
+	if IsFatalError(err) {
+		m.fatalError = err.Error()
+		return
+	}
+	if errors.Is(err, gmail.ErrUnauthorized) {
+		m.statusMessage = "re-authenticate " + firstNonEmpty(account, m.mailbox.Account)
+		m.toastMessage = m.statusMessage
+		return
+	}
+	if summary == "" {
+		summary = err.Error()
+	}
+	m.statusMessage = summary
+	m.toastMessage = summary
 }
 
 func (m Model) startRefresh(kind RefreshKind) (tea.Model, tea.Cmd) {
