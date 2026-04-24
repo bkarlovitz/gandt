@@ -19,7 +19,7 @@ Grounded in `prd.md` sections 7, 9, 13.4, 15, 18, 20, and milestone M4.
   - Respect pagination and cancellation when a user starts a new query.
   - Validation: `go test ./internal/gmail ./internal/sync ./internal/ui` covers query parameters, pagination, cancellation, and result rendering.
 
-- [ ] **Task 7.3**: Implement offline FTS search parser
+- [x] **Task 7.3**: Implement offline FTS search parser
   - Support overlapping Gmail-style fields where practical: `from:`, `to:`, `subject:`, and full-text terms.
   - Compile supported terms into safe FTS5 queries using parameters.
   - Report unsupported operators clearly without claiming full Gmail syntax offline.
