@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -73,10 +72,7 @@ func buildAccountAdder(paths config.Paths) ui.AccountAdder {
 		}
 
 		secrets := auth.NewSecretStore(auth.SystemKeyring{})
-		credentials, err := secrets.ClientCredentials()
-		if errors.Is(err, auth.ErrSecretNotFound) {
-			return ui.AccountAddResult{}, errors.New("OAuth client credentials are not configured")
-		}
+		credentials, _, err := auth.NewCredentialSetup(secrets).EnsureClientCredentials(ctx, auth.HuhCredentialPrompt{})
 		if err != nil {
 			return ui.AccountAddResult{}, err
 		}
