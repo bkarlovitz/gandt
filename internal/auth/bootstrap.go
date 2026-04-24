@@ -18,9 +18,10 @@ type GmailBootstrapClient interface {
 }
 
 type AccountBootstrapper struct {
-	accounts cache.AccountRepository
-	labels   cache.LabelRepository
-	secrets  SecretStore
+	accounts     cache.AccountRepository
+	labels       cache.LabelRepository
+	secrets      SecretStore
+	registryPath string
 }
 
 func NewAccountBootstrapper(db *sqlx.DB, secrets SecretStore) AccountBootstrapper {
@@ -29,6 +30,12 @@ func NewAccountBootstrapper(db *sqlx.DB, secrets SecretStore) AccountBootstrappe
 		labels:   cache.NewLabelRepository(db),
 		secrets:  secrets,
 	}
+}
+
+func NewAccountBootstrapperWithRegistry(db *sqlx.DB, secrets SecretStore, registryPath string) AccountBootstrapper {
+	bootstrapper := NewAccountBootstrapper(db, secrets)
+	bootstrapper.registryPath = registryPath
+	return bootstrapper
 }
 
 func (b AccountBootstrapper) Bootstrap(ctx context.Context, client GmailBootstrapClient, token *oauth2.Token, configuredColor string) (cache.Account, error) {
@@ -80,6 +87,12 @@ func (b AccountBootstrapper) Bootstrap(ctx context.Context, client GmailBootstra
 			_ = b.accounts.Delete(ctx, account.ID)
 			return cache.Account{}, err
 		}
+	}
+
+	if err := WriteAccountRegistry(ctx, b.accounts, b.registryPath); err != nil {
+		_ = b.secrets.DeleteOAuthToken(account.ID)
+		_ = b.accounts.Delete(ctx, account.ID)
+		return cache.Account{}, err
 	}
 
 	return account, nil

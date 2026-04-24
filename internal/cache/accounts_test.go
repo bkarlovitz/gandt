@@ -74,8 +74,57 @@ func TestAccountRepositoryRejectsDuplicateEmail(t *testing.T) {
 	if _, err := repo.Create(ctx, CreateAccountParams{Email: "me@example.com"}); err != nil {
 		t.Fatalf("create first account: %v", err)
 	}
-	if _, err := repo.Create(ctx, CreateAccountParams{Email: "me@example.com"}); !errors.Is(err, ErrDuplicateEmail) {
+	if _, err := repo.Create(ctx, CreateAccountParams{Email: "ME@example.com"}); !errors.Is(err, ErrDuplicateEmail) {
 		t.Fatalf("duplicate account error = %v, want ErrDuplicateEmail", err)
+	}
+}
+
+func TestAccountRepositorySupportsMultipleAccountsAcrossReload(t *testing.T) {
+	ctx := context.Background()
+	path := t.TempDir() + "/cache.db"
+	db, err := OpenPath(ctx, path)
+	if err != nil {
+		t.Fatalf("open cache: %v", err)
+	}
+	if err := Migrate(ctx, db); err != nil {
+		t.Fatalf("migrate cache: %v", err)
+	}
+	repo := NewAccountRepository(db)
+	first, err := repo.Create(ctx, CreateAccountParams{Email: "one@example.com"})
+	if err != nil {
+		t.Fatalf("create first account: %v", err)
+	}
+	second, err := repo.Create(ctx, CreateAccountParams{Email: "two@example.com"})
+	if err != nil {
+		t.Fatalf("create second account: %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("close cache: %v", err)
+	}
+
+	reopened, err := OpenPath(ctx, path)
+	if err != nil {
+		t.Fatalf("reopen cache: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := reopened.Close(); err != nil {
+			t.Fatalf("close reopened cache: %v", err)
+		}
+	})
+	if err := Migrate(ctx, reopened); err != nil {
+		t.Fatalf("migrate reopened cache: %v", err)
+	}
+	reloaded := NewAccountRepository(reopened)
+	gotFirst, err := reloaded.Get(ctx, first.ID)
+	if err != nil {
+		t.Fatalf("get first by stable id: %v", err)
+	}
+	gotSecond, err := reloaded.Get(ctx, second.ID)
+	if err != nil {
+		t.Fatalf("get second by stable id: %v", err)
+	}
+	if gotFirst.Email != "one@example.com" || gotSecond.Email != "two@example.com" {
+		t.Fatalf("reloaded accounts = %#v %#v", gotFirst, gotSecond)
 	}
 }
 

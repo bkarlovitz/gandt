@@ -13,6 +13,7 @@ const appDirName = "gandt"
 type Paths struct {
 	ConfigDir     string
 	ConfigFile    string
+	AccountsFile  string
 	DataDir       string
 	AttachmentDir string
 	LogDir        string
@@ -67,6 +68,7 @@ func resolvePaths(goos string, getenv func(string) string, homeDir func() (strin
 		DataDir:   filepath.Join(dataBase, appDirName),
 	}
 	paths.ConfigFile = filepath.Join(paths.ConfigDir, "config.toml")
+	paths.AccountsFile = filepath.Join(paths.ConfigDir, "accounts.json")
 	paths.AttachmentDir = filepath.Join(paths.DataDir, "attachments")
 	paths.LogDir = filepath.Join(paths.DataDir, "logs")
 	paths.LogFile = filepath.Join(paths.LogDir, "gandt.log")

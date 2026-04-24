@@ -109,7 +109,7 @@ func buildAccountAdder(paths config.Paths, cfg config.Config) ui.AccountAdder {
 			return ui.AccountAddResult{}, err
 		}
 
-		account, err := auth.NewAccountBootstrapper(db, secrets).Bootstrap(ctx, gmailClient, token, "")
+		account, err := auth.NewAccountBootstrapperWithRegistry(db, secrets, paths.AccountsFile).Bootstrap(ctx, gmailClient, token, "")
 		if err != nil {
 			return ui.AccountAddResult{}, err
 		}

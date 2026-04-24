@@ -7,7 +7,7 @@
 Grounded in `prd.md` sections 1, 3, 4, 7, 8, 10, 12, 13.1, 13.6, 16, 20, and milestone M3.
 
 ## Tasks
-- [ ] **Task 6.1**: Harden multi-account account registry behavior
+- [x] **Task 6.1**: Harden multi-account account registry behavior
   - Ensure every service call requires an explicit account ID.
   - Keep account IDs stable across restarts and account email changes reported by Gmail profile.
   - Store non-secret registry data in SQLite and the configured accounts file as required by the PRD.

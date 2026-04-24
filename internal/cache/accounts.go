@@ -64,6 +64,14 @@ func (r AccountRepository) Create(ctx context.Context, params CreateAccountParam
 	}
 	defer tx.Rollback()
 
+	var duplicate int
+	if err := tx.GetContext(ctx, &duplicate, "SELECT COUNT(*) FROM accounts WHERE lower(email) = lower(?)", account.Email); err != nil {
+		return Account{}, fmt.Errorf("check duplicate account email: %w", err)
+	}
+	if duplicate > 0 {
+		return Account{}, ErrDuplicateEmail
+	}
+
 	_, err = tx.ExecContext(ctx, `
 INSERT INTO accounts (id, email, display_name, added_at, history_id, color)
 VALUES (?, ?, ?, ?, ?, ?)
@@ -89,7 +97,7 @@ func (r AccountRepository) Get(ctx context.Context, id string) (Account, error) 
 }
 
 func (r AccountRepository) GetByEmail(ctx context.Context, email string) (Account, error) {
-	return r.get(ctx, "WHERE email = ?", strings.TrimSpace(email))
+	return r.get(ctx, "WHERE lower(email) = lower(?)", strings.TrimSpace(email))
 }
 
 func (r AccountRepository) List(ctx context.Context) ([]Account, error) {
