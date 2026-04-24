@@ -1,5 +1,7 @@
 package ui
 
+import "errors"
+
 type AccountAddResult struct {
 	Account string
 	Labels  []Label
@@ -46,4 +48,32 @@ type ThreadLoaderFunc func(ThreadLoadRequest) (ThreadLoadResult, error)
 
 func (fn ThreadLoaderFunc) LoadThread(request ThreadLoadRequest) (ThreadLoadResult, error) {
 	return fn(request)
+}
+
+type OfflineError struct {
+	Err error
+}
+
+func (err OfflineError) Error() string {
+	if err.Err == nil {
+		return "offline"
+	}
+	return err.Err.Error()
+}
+
+func (err OfflineError) Unwrap() error {
+	return err.Err
+}
+
+func (err OfflineError) Offline() bool {
+	return true
+}
+
+func MarkOffline(err error) error {
+	return OfflineError{Err: err}
+}
+
+func IsOfflineError(err error) bool {
+	var offline interface{ Offline() bool }
+	return errors.As(err, &offline) && offline.Offline()
 }

@@ -42,6 +42,7 @@ type Model struct {
 	quitting        bool
 	commandInput    string
 	statusMessage   string
+	offline         bool
 	addingAccount   bool
 	addAccount      AccountAdder
 	replacingCreds  bool
@@ -125,6 +126,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case threadLoadDoneMsg:
 		m.loadingThreadID = ""
 		if msg.Err != nil {
+			if IsOfflineError(msg.Err) {
+				m.offline = true
+				m.statusMessage = "offline: cached mail available"
+				return m, nil
+			}
 			m.statusMessage = "load thread failed: " + msg.Err.Error()
 			return m, nil
 		}

@@ -212,18 +212,23 @@ func (m Model) renderMailbox() string {
 }
 
 func (m Model) mailboxHeader() string {
+	var header string
 	switch {
 	case m.mailbox.AuthError != "":
-		return fmt.Sprintf("G&T | auth failure: %s | fake inbox | no network", m.mailbox.AuthError)
+		header = fmt.Sprintf("G&T | auth failure: %s | fake inbox | no network", m.mailbox.AuthError)
 	case m.mailbox.Bootstrapping:
-		return fmt.Sprintf("G&T | %s | bootstrapping account", m.mailbox.Account)
+		header = fmt.Sprintf("G&T | %s | bootstrapping account", m.mailbox.Account)
 	case m.mailbox.NoAccounts:
-		return "G&T | no accounts configured"
+		header = "G&T | no accounts configured"
 	case m.mailbox.Real:
-		return fmt.Sprintf("G&T | %s | Gmail cache", m.mailbox.Account)
+		header = fmt.Sprintf("G&T | %s | Gmail cache", m.mailbox.Account)
 	default:
-		return fmt.Sprintf("G&T | %s | fake inbox | no network", m.mailbox.Account)
+		header = fmt.Sprintf("G&T | %s | fake inbox | no network", m.mailbox.Account)
 	}
+	if m.offline && !strings.Contains(header, "offline") {
+		header += " | offline"
+	}
+	return header
 }
 
 func (m Model) renderLabels(width, maxRows int) []string {

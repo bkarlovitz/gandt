@@ -61,7 +61,7 @@ Grounded in `prd.md` sections 7, 9, 10, 12, 13.2, 13.3, 14, 17, 18, 20, and mile
   - Render headers, body, quote state, and attachment list.
   - Validation: `go test ./internal/ui/...` simulates cached read, cache miss loading, cache miss success, and cache miss error.
 
-- [ ] **Task 3.10**: Add offline read behavior
+- [x] **Task 3.10**: Add offline read behavior
   - Detect network read failures and surface an offline status.
   - Continue browsing cached labels, messages, and bodies.
   - Mark streamed-but-not-cached messages clearly when policy depth is metadata.

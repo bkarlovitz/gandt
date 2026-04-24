@@ -111,20 +111,79 @@ func TestReaderLoadError(t *testing.T) {
 	}
 }
 
+func TestReaderOfflineErrorKeepsCachedBrowsing(t *testing.T) {
+	model := New(config.Default(),
+		WithMailbox(readerMailboxWithMessages([]Message{
+			readerMessage("message-1", "thread-1", nil),
+			readerMessage("message-2", "thread-2", []string{"cached second body"}),
+		})),
+		WithThreadLoader(ThreadLoaderFunc(func(ThreadLoadRequest) (ThreadLoadResult, error) {
+			return ThreadLoadResult{}, MarkOffline(errors.New("dial tcp failed"))
+		})),
+	)
+	updated, _ := model.Update(tea.WindowSizeMsg{Width: 100, Height: 12})
+	model = updated.(Model)
+
+	updated, cmd := model.Update(keyMsg("enter"))
+	got := updated.(Model)
+	updated, _ = got.Update(cmd())
+	got = updated.(Model)
+	if !got.offline || got.statusMessage != "offline: cached mail available" {
+		t.Fatalf("offline state = %v/%q, want offline cached status", got.offline, got.statusMessage)
+	}
+	if !strings.Contains(got.View(), "offline") {
+		t.Fatalf("view does not expose offline state:\n%s", got.View())
+	}
+
+	updated, _ = got.Update(keyMsg("j"))
+	got = updated.(Model)
+	if got.selectedMessage != 1 {
+		t.Fatalf("selected message = %d, want cached browsing to continue", got.selectedMessage)
+	}
+}
+
+func TestReaderMarksStreamedButNotCachedBody(t *testing.T) {
+	model := New(config.Default(),
+		WithMailbox(readerMailbox(nil)),
+		WithThreadLoader(ThreadLoaderFunc(func(ThreadLoadRequest) (ThreadLoadResult, error) {
+			return ThreadLoadResult{MessageID: "message-1", ThreadID: "thread-1", Body: []string{"streamed body"}, CacheState: "streamed"}, nil
+		})),
+	)
+	updated, _ := model.Update(tea.WindowSizeMsg{Width: 100, Height: 12})
+	model = updated.(Model)
+
+	updated, cmd := model.Update(keyMsg("enter"))
+	got := updated.(Model)
+	updated, _ = got.Update(cmd())
+	got = updated.(Model)
+	if got.mailbox.Messages[0].CacheState != "streamed" {
+		t.Fatalf("cache state = %q, want streamed", got.mailbox.Messages[0].CacheState)
+	}
+	if !strings.Contains(got.View(), "streamed | metadata row") {
+		t.Fatalf("view does not mark streamed row:\n%s", got.View())
+	}
+}
+
 func readerMailbox(body []string) Mailbox {
+	return readerMailboxWithMessages([]Message{readerMessage("message-1", "thread-1", body)})
+}
+
+func readerMailboxWithMessages(messages []Message) Mailbox {
 	return RealAccountMailbox("me@example.com", []Label{{ID: "INBOX", Name: "Inbox", System: true, CacheDepth: "metadata"}}, map[string][]Message{
-		"INBOX": {
-			{
-				ID:         "message-1",
-				ThreadID:   "thread-1",
-				From:       "Ada",
-				Address:    "ada@example.com",
-				Subject:    "Needs body",
-				Date:       "Apr 24",
-				Snippet:    "metadata row",
-				Body:       body,
-				CacheState: "metadata",
-			},
-		},
+		"INBOX": messages,
 	})
+}
+
+func readerMessage(id string, threadID string, body []string) Message {
+	return Message{
+		ID:         id,
+		ThreadID:   threadID,
+		From:       "Ada",
+		Address:    "ada@example.com",
+		Subject:    "Needs body",
+		Date:       "Apr 24",
+		Snippet:    "metadata row",
+		Body:       body,
+		CacheState: "metadata",
+	}
 }
