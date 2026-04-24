@@ -151,8 +151,13 @@ func (m Model) renderMailbox() string {
 		}
 	}
 
+	header := fmt.Sprintf("G&T | %s | fake inbox | no network", m.mailbox.Account)
+	if m.statusMessage != "" {
+		header = fmt.Sprintf("%s | %s", header, m.statusMessage)
+	}
+
 	return trimRightLines(strings.Join([]string{
-		fit(fmt.Sprintf("G&T | %s | fake inbox | no network", m.mailbox.Account), width),
+		fit(header, width),
 		strings.Repeat("-", width),
 		body,
 		strings.Repeat("-", width),

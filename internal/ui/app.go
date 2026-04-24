@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"os"
 	"strings"
 
@@ -39,10 +40,24 @@ type Model struct {
 	selectedMessage int
 	readerOpen      bool
 	quitting        bool
+	commandInput    string
+	statusMessage   string
+	addingAccount   bool
+	addAccount      AccountAdder
 }
 
-func New(cfg config.Config) Model {
-	return Model{
+type Option func(*Model)
+
+func WithAccountAdder(adder AccountAdder) Option {
+	return func(m *Model) {
+		if adder != nil {
+			m.addAccount = adder
+		}
+	}
+}
+
+func New(cfg config.Config, opts ...Option) Model {
+	model := Model{
 		config:  cfg,
 		keys:    DefaultKeyMap(),
 		styles:  NewStyles(os.Getenv("NO_COLOR") != ""),
@@ -50,6 +65,10 @@ func New(cfg config.Config) Model {
 		mode:    ModeNormal,
 		focus:   PaneList,
 	}
+	for _, opt := range opts {
+		opt(&model)
+	}
+	return model
 }
 
 func (m Model) Init() tea.Cmd {
@@ -61,6 +80,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+	case addAccountDoneMsg:
+		m.addingAccount = false
+		if msg.Err != nil {
+			m.statusMessage = "add account failed: " + msg.Err.Error()
+			return m, nil
+		}
+		m.statusMessage = fmt.Sprintf("added account %s", msg.Result.Account)
+		if len(msg.Result.Labels) > 0 {
+			m.mailbox.Account = msg.Result.Account
+			m.mailbox.Labels = msg.Result.Labels
+			m.selectedLabel = clamp(m.selectedLabel, 0, len(m.mailbox.Labels)-1)
+		}
 	case tea.KeyMsg:
 		return m.handleKey(msg)
 	}
@@ -90,7 +121,9 @@ func (m Model) View() string {
 	case ModeCompose:
 		b.WriteString("Compose mode\n\nPress Esc to return.")
 	case ModeCommand:
-		b.WriteString("Command mode\n\nPress Esc to return.")
+		b.WriteString("Command mode\n\n")
+		b.WriteString(m.commandInput)
+		b.WriteString("\n\nPress Esc to return.")
 	}
 
 	return b.String()
@@ -115,6 +148,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case ModeSearch, ModeCompose, ModeCommand:
+		if m.mode == ModeCommand {
+			return m.handleCommandKey(msg)
+		}
 		if key == "esc" {
 			m.mode = ModeNormal
 		}
@@ -146,9 +182,79 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.mode = ModeCompose
 	case ":":
 		m.mode = ModeCommand
+		m.commandInput = ":"
 	}
 
 	return m, nil
+}
+
+func (m Model) handleCommandKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEsc:
+		m.mode = ModeNormal
+		m.commandInput = ""
+		return m, nil
+	case tea.KeyEnter:
+		return m.submitCommand()
+	case tea.KeyBackspace, tea.KeyCtrlH:
+		if len(m.commandInput) > 1 {
+			m.commandInput = m.commandInput[:len(m.commandInput)-1]
+		}
+		return m, nil
+	}
+
+	key := msg.String()
+	if key == "esc" {
+		m.mode = ModeNormal
+		m.commandInput = ""
+		return m, nil
+	}
+	if key == "backspace" || key == "ctrl+h" {
+		if len(m.commandInput) > 1 {
+			m.commandInput = m.commandInput[:len(m.commandInput)-1]
+		}
+		return m, nil
+	}
+	for _, r := range msg.Runes {
+		m.commandInput += string(r)
+	}
+	return m, nil
+}
+
+func (m Model) submitCommand() (tea.Model, tea.Cmd) {
+	command := strings.TrimSpace(strings.TrimPrefix(m.commandInput, ":"))
+	m.mode = ModeNormal
+	m.commandInput = ""
+
+	switch command {
+	case "add-account":
+		if m.addingAccount {
+			m.statusMessage = "add account already running"
+			return m, nil
+		}
+		if m.addAccount == nil {
+			m.statusMessage = "add account unavailable"
+			return m, nil
+		}
+		m.addingAccount = true
+		m.statusMessage = "adding account..."
+		return m, m.runAddAccount()
+	case "quit", "q":
+		m.quitting = true
+		return m, tea.Quit
+	case "":
+		return m, nil
+	default:
+		m.statusMessage = "unknown command: " + command
+		return m, nil
+	}
+}
+
+func (m Model) runAddAccount() tea.Cmd {
+	return func() tea.Msg {
+		result, err := m.addAccount.AddAccount()
+		return addAccountDoneMsg{Result: result, Err: err}
+	}
 }
 
 func (m *Model) moveSelection(delta int) {

@@ -61,7 +61,7 @@ Grounded in `prd.md` sections 7, 8, 9, 10, 11, 16, 19, 20, and milestone M1.
   - Assign a deterministic account color when the user has not configured one.
   - Validation: `go test ./internal/gmail/...` uses fake HTTP responses for profile and labels, and `go test ./internal/auth ./internal/cache` verifies persisted account bootstrap.
 
-- [ ] **Task 2.10**: Add `:add-account` command UI
+- [x] **Task 2.10**: Add `:add-account` command UI
   - Wire command mode so `:add-account` runs credential setup if needed, then OAuth, then profile and label bootstrap as async `tea.Cmd` work.
   - Show loading, success, and failure states without blocking the Bubble Tea update loop.
   - Preserve the fake inbox fallback when no account is configured.

@@ -10,3 +10,8 @@ type SyncUpdateMsg struct {
 type ErrorMsg struct {
 	Err error
 }
+
+type addAccountDoneMsg struct {
+	Result AccountAddResult
+	Err    error
+}
