@@ -93,8 +93,8 @@ func TestUndoExpiresAfterWindow(t *testing.T) {
 
 	updated, cmd = model.Update(keyMsg("U"))
 	model = updated.(Model)
-	if cmd != nil {
-		t.Fatalf("expected expired undo to return no command, got %T", cmd)
+	if cmd == nil {
+		t.Fatal("expected toast dismissal command for expired undo")
 	}
 	if model.statusMessage != "undo expired" {
 		t.Fatalf("status = %q, want undo expired", model.statusMessage)
@@ -106,8 +106,8 @@ func TestUndoUnavailableMessaging(t *testing.T) {
 
 	updated, cmd := model.Update(keyMsg("U"))
 	got := updated.(Model)
-	if cmd != nil {
-		t.Fatalf("expected no undo command, got %T", cmd)
+	if cmd == nil {
+		t.Fatal("expected toast dismissal command for unavailable undo")
 	}
 	if got.statusMessage != "nothing to undo" {
 		t.Fatalf("status = %q, want nothing to undo", got.statusMessage)

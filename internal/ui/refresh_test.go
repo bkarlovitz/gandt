@@ -21,11 +21,8 @@ func TestRefreshKeyStartsDeltaSyncAndShowsSuccess(t *testing.T) {
 		t.Fatalf("refresh state = status %q toast %q account %q, want progress", got.statusMessage, got.toastMessage, got.refreshingAccount)
 	}
 
-	updated, followup := got.Update(cmd())
+	updated, _ = got.Update(cmd())
 	got = updated.(Model)
-	if followup != nil {
-		t.Fatalf("unexpected follow-up command %T", followup)
-	}
 	if got.refreshingAccount != "" || got.statusMessage != "delta synced" || got.toastMessage != "delta synced" {
 		t.Fatalf("done state = status %q toast %q account %q, want success", got.statusMessage, got.toastMessage, got.refreshingAccount)
 	}
@@ -80,8 +77,8 @@ func TestRefreshPreventsOverlappingSyncForSameAccount(t *testing.T) {
 	}
 	updated, second := got.Update(keyMsg("ctrl+r"))
 	got = updated.(Model)
-	if second != nil {
-		t.Fatalf("expected overlapping refresh to be debounced, got %T", second)
+	if second == nil {
+		t.Fatal("expected toast dismissal command for overlapping refresh warning")
 	}
 	if !strings.Contains(got.statusMessage, "sync already running") {
 		t.Fatalf("status = %q, want overlap warning", got.statusMessage)

@@ -15,12 +15,12 @@ func TestCacheWipeRequiresTwoConfirmations(t *testing.T) {
 
 	updated, cmd := submitTestCommand(model, "cache-wipe")
 	model = updated.(Model)
-	if cmd != nil || model.pendingCacheWipeStep != 1 || model.statusMessage != "cache wipe confirmation 1/2: press y to continue" {
+	if cmd == nil || model.pendingCacheWipeStep != 1 || model.statusMessage != "cache wipe confirmation 1/2: press y to continue" {
 		t.Fatalf("cmd/step/status = %T/%d/%q, want first confirmation", cmd, model.pendingCacheWipeStep, model.statusMessage)
 	}
 	updated, cmd = model.Update(keyMsg("y"))
 	model = updated.(Model)
-	if cmd != nil || model.pendingCacheWipeStep != 2 || calls != 0 {
+	if cmd == nil || model.pendingCacheWipeStep != 2 || calls != 0 {
 		t.Fatalf("cmd/step/calls = %T/%d/%d, want second confirmation without wipe", cmd, model.pendingCacheWipeStep, calls)
 	}
 	updated, cmd = model.Update(keyMsg("y"))

@@ -13,6 +13,10 @@ type ErrorMsg struct {
 	Err error
 }
 
+type toastExpiredMsg struct {
+	Generation int
+}
+
 type addAccountDoneMsg struct {
 	Result AccountAddResult
 	Err    error

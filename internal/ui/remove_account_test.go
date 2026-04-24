@@ -20,7 +20,7 @@ func TestRemoveAccountRequiresConfirmationAndClearsActiveAccount(t *testing.T) {
 
 	updated, cmd := submitTestCommand(model, "remove-account")
 	got := updated.(Model)
-	if cmd != nil || got.pendingRemoveAccount != "me@example.com" {
+	if cmd == nil || got.pendingRemoveAccount != "me@example.com" {
 		t.Fatalf("cmd/pending = %T/%q, want confirmation", cmd, got.pendingRemoveAccount)
 	}
 	if got.statusMessage != "remove account me@example.com? y confirm / n cancel" {
@@ -55,7 +55,7 @@ func TestRemoveAccountCanCancel(t *testing.T) {
 	updated, _ := submitTestCommand(model, "remove-account")
 	updated, cmd := updated.(Model).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
 	got := updated.(Model)
-	if cmd != nil || calls != 0 || got.pendingRemoveAccount != "" {
+	if cmd == nil || calls != 0 || got.pendingRemoveAccount != "" {
 		t.Fatalf("cmd/calls/pending = %T/%d/%q, want canceled", cmd, calls, got.pendingRemoveAccount)
 	}
 	if got.statusMessage != "remove account canceled" {

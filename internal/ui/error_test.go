@@ -23,10 +23,40 @@ func TestAuthErrorPromptsReauthentication(t *testing.T) {
 func TestNonFatalErrorRendersToast(t *testing.T) {
 	model := New(config.Default())
 
-	updated, _ := model.Update(ErrorMsg{Err: errors.New("network down")})
+	updated, cmd := model.Update(ErrorMsg{Err: errors.New("network down")})
 	got := updated.(Model)
+	if cmd == nil {
+		t.Fatal("expected toast dismissal command")
+	}
 	if got.statusMessage != "network down" || got.toastMessage != "network down" {
 		t.Fatalf("status/toast = %q/%q, want non-fatal toast", got.statusMessage, got.toastMessage)
+	}
+}
+
+func TestToastAutoDismissIgnoresStaleTimers(t *testing.T) {
+	model := New(config.Default())
+
+	updated, _ := model.Update(ErrorMsg{Err: errors.New("first")})
+	model = updated.(Model)
+	firstGeneration := model.toastGeneration
+
+	updated, _ = model.Update(ErrorMsg{Err: errors.New("second")})
+	model = updated.(Model)
+	secondGeneration := model.toastGeneration
+	if secondGeneration == firstGeneration {
+		t.Fatalf("toast generation did not advance: %d", secondGeneration)
+	}
+
+	updated, _ = model.Update(toastExpiredMsg{Generation: firstGeneration})
+	model = updated.(Model)
+	if model.toastMessage != "second" {
+		t.Fatalf("stale timer cleared toast: %q", model.toastMessage)
+	}
+
+	updated, _ = model.Update(toastExpiredMsg{Generation: secondGeneration})
+	model = updated.(Model)
+	if model.toastMessage != "" || model.statusMessage != "second" {
+		t.Fatalf("toast/status = %q/%q, want dismissed toast with status retained", model.toastMessage, model.statusMessage)
 	}
 }
 

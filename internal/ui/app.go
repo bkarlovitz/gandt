@@ -89,6 +89,7 @@ type Model struct {
 	searchGeneration      int
 	searchCancel          context.CancelFunc
 	toastMessage          string
+	toastGeneration       int
 	triageActor           TriageActor
 	composeActor          ComposeActor
 	cacheDashboardLoader  CacheDashboardLoader
@@ -117,6 +118,8 @@ type Model struct {
 	syncCancel            context.CancelFunc
 	syncHadInput          bool
 }
+
+const toastDismissAfter = 5 * time.Second
 
 type SearchState struct {
 	Query           string
@@ -348,11 +351,25 @@ func (m Model) Init() tea.Cmd {
 	return m.runSyncCycle(true)
 }
 
-func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m Model) Update(msg tea.Msg) (updated tea.Model, cmd tea.Cmd) {
+	previousToast := m.toastMessage
+	previousToastGeneration := m.toastGeneration
+	defer func() {
+		model, ok := updated.(Model)
+		if !ok {
+			return
+		}
+		updated, cmd = model.withToastTimer(previousToast, previousToastGeneration, cmd)
+	}()
+
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+	case toastExpiredMsg:
+		if msg.Generation == m.toastGeneration {
+			m.toastMessage = ""
+		}
 	case addAccountDoneMsg:
 		m.addingAccount = false
 		if msg.Err != nil {
@@ -678,6 +695,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	return m, nil
+}
+
+func (m Model) withToastTimer(previousToast string, previousGeneration int, cmd tea.Cmd) (tea.Model, tea.Cmd) {
+	if m.toastMessage == "" {
+		return m, cmd
+	}
+	if cmd != nil {
+		return m, cmd
+	}
+	if m.toastMessage == previousToast && m.toastGeneration == previousGeneration {
+		return m, cmd
+	}
+	m.toastGeneration++
+	generation := m.toastGeneration
+	return m, tea.Tick(toastDismissAfter, func(time.Time) tea.Msg {
+		return toastExpiredMsg{Generation: generation}
+	})
 }
 
 func (m Model) View() string {

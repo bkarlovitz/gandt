@@ -48,8 +48,8 @@ func TestCacheExcludeCommandRejectsInvalidType(t *testing.T) {
 
 	updated, cmd := submitTestCommand(model, "cache-exclude subject secret")
 	model = updated.(Model)
-	if cmd != nil {
-		t.Fatalf("expected no command for invalid type, got %T", cmd)
+	if cmd == nil {
+		t.Fatal("expected toast dismissal command for invalid type")
 	}
 	if model.statusMessage != "invalid cache exclusion type: subject" {
 		t.Fatalf("status = %q, want invalid type", model.statusMessage)

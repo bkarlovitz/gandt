@@ -110,8 +110,8 @@ func TestCachePurgeCommandRejectsInvalidFlags(t *testing.T) {
 
 	updated, cmd := submitTestCommand(model, "cache-purge --older-than soon --dry-run")
 	model = updated.(Model)
-	if cmd != nil {
-		t.Fatalf("expected no command for invalid flags, got %T", cmd)
+	if cmd == nil {
+		t.Fatal("expected toast dismissal command for invalid flags")
 	}
 	if model.statusMessage != "--older-than must be positive days" {
 		t.Fatalf("status = %q, want invalid older-than error", model.statusMessage)
