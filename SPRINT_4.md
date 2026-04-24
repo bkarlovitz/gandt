@@ -19,7 +19,7 @@ Grounded in `prd.md` sections 9, 10, 13.6, 17, 18, 20, and milestone M2.
   - Surface a status message so the user knows a larger refresh is running.
   - Validation: `go test ./internal/sync/...` covers expired history fallback and preserved cached bodies.
 
-- [ ] **Task 4.3**: Add the background sync coordinator
+- [x] **Task 4.3**: Add the background sync coordinator
   - Start a long-lived sync loop from `Init()` using active and idle poll intervals from config.
   - Post `SyncUpdateMsg` messages back into the Bubble Tea model.
   - Avoid network calls on the Bubble Tea update path.

@@ -60,6 +60,7 @@ func main() {
 		ui.WithAccountAdder(buildAccountAdder(paths, cfg)),
 		ui.WithCredentialReplacer(buildCredentialReplacer()),
 		ui.WithThreadLoader(buildThreadLoader(paths, cfg)),
+		ui.WithSyncCoordinator(buildSyncCoordinator(paths, cfg)),
 	}
 	if mailbox, ok := loadInitialMailbox(paths); ok {
 		uiOptions = append(uiOptions, ui.WithMailbox(mailbox))
@@ -147,6 +148,34 @@ func buildCredentialReplacer() ui.CredentialReplacer {
 		_, err = setup.ReplaceClientCredentials(ctx, prompt, confirmed)
 		return err
 	})
+}
+
+func buildSyncCoordinator(paths config.Paths, cfg config.Config) ui.SyncCoordinator {
+	return gandtsync.NewCoordinator(cfg, gandtsync.SyncRunnerFunc(func(ctx context.Context) (gandtsync.AccountSyncResult, error) {
+		db, err := cache.Open(ctx, paths)
+		if err != nil {
+			return gandtsync.AccountSyncResult{}, err
+		}
+		defer db.Close()
+		if err := cache.Migrate(ctx, db); err != nil {
+			return gandtsync.AccountSyncResult{}, err
+		}
+
+		accounts, err := cache.NewAccountRepository(db).List(ctx)
+		if err != nil {
+			return gandtsync.AccountSyncResult{}, err
+		}
+		if len(accounts) == 0 {
+			return gandtsync.AccountSyncResult{Status: "sync skipped: no accounts configured"}, nil
+		}
+
+		account := accounts[0]
+		gmailClient, err := gmailClientForAccount(ctx, account.ID)
+		if err != nil {
+			return gandtsync.AccountSyncResult{}, err
+		}
+		return gandtsync.NewDeltaSynchronizer(db, cfg, gmailClient).Sync(ctx, account)
+	}))
 }
 
 func loadInitialMailbox(paths config.Paths) (ui.Mailbox, bool) {

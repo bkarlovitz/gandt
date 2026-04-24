@@ -1,9 +1,11 @@
 package ui
 
-// SyncUpdateMsg is reserved for background service updates once Gmail sync exists.
 type SyncUpdateMsg struct {
 	AccountID string
 	Summary   string
+	Err       error
+	Stopped   bool
+	Fallback  bool
 }
 
 // ErrorMsg carries non-fatal errors back to the root Bubble Tea model.

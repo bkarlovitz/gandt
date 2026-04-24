@@ -1,11 +1,13 @@
 package ui
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strings"
 
 	"github.com/bkarlovitz/gandt/internal/config"
+	gandtsync "github.com/bkarlovitz/gandt/internal/sync"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -52,6 +54,10 @@ type Model struct {
 	replaceCreds          CredentialReplacer
 	threadLoader          ThreadLoader
 	loadingThreadID       string
+	syncCoordinator       SyncCoordinator
+	syncContext           context.Context
+	syncCancel            context.CancelFunc
+	syncHadInput          bool
 }
 
 type Option func(*Model)
@@ -86,6 +92,18 @@ func WithThreadLoader(loader ThreadLoader) Option {
 	}
 }
 
+type SyncCoordinator interface {
+	Next(context.Context, bool) gandtsync.CoordinatorUpdate
+}
+
+func WithSyncCoordinator(coordinator SyncCoordinator) Option {
+	return func(m *Model) {
+		if coordinator != nil {
+			m.syncCoordinator = coordinator
+		}
+	}
+}
+
 func New(cfg config.Config, opts ...Option) Model {
 	model := Model{
 		config:     cfg,
@@ -99,11 +117,14 @@ func New(cfg config.Config, opts ...Option) Model {
 	for _, opt := range opts {
 		opt(&model)
 	}
+	if model.syncCoordinator != nil {
+		model.syncContext, model.syncCancel = context.WithCancel(context.Background())
+	}
 	return model
 }
 
 func (m Model) Init() tea.Cmd {
-	return nil
+	return m.runSyncCycle(true)
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -140,6 +161,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.applyThreadLoadResult(msg.Result)
 		m.statusMessage = "loaded thread"
+	case SyncUpdateMsg:
+		if msg.Stopped {
+			return m, nil
+		}
+		if msg.Summary != "" {
+			m.statusMessage = msg.Summary
+		}
+		return m, m.runSyncCycle(m.consumeSyncActivity())
 	case tea.KeyMsg:
 		return m.handleKey(msg)
 	}
@@ -179,8 +208,10 @@ func (m Model) View() string {
 
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
+	m.syncHadInput = true
 
 	if key == "ctrl+c" {
+		m.stopSync()
 		m.quitting = true
 		return m, tea.Quit
 	}
@@ -191,6 +222,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "esc", "?":
 			m.mode = ModeNormal
 		case "q":
+			m.stopSync()
 			m.quitting = true
 			return m, tea.Quit
 		}
@@ -207,6 +239,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	switch key {
 	case "q", "esc":
+		m.stopSync()
 		m.quitting = true
 		return m, tea.Quit
 	case "?":
@@ -326,6 +359,7 @@ func (m Model) submitCommand() (tea.Model, tea.Cmd) {
 		m.statusMessage = "replacing credentials..."
 		return m, m.runReplaceCredentials()
 	case "quit", "q":
+		m.stopSync()
 		m.quitting = true
 		return m, tea.Quit
 	case "":
@@ -356,6 +390,38 @@ func (m Model) runLoadThread(message Message) tea.Cmd {
 			Message: message,
 		})
 		return threadLoadDoneMsg{Result: result, Err: err}
+	}
+}
+
+func (m Model) runSyncCycle(active bool) tea.Cmd {
+	if m.syncCoordinator == nil {
+		return nil
+	}
+	ctx := m.syncContext
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return func() tea.Msg {
+		update := m.syncCoordinator.Next(ctx, active)
+		return SyncUpdateMsg{
+			AccountID: update.AccountID,
+			Summary:   update.Summary,
+			Err:       update.Err,
+			Stopped:   update.Stopped,
+			Fallback:  update.Fallback,
+		}
+	}
+}
+
+func (m *Model) consumeSyncActivity() bool {
+	active := m.syncHadInput
+	m.syncHadInput = false
+	return active
+}
+
+func (m *Model) stopSync() {
+	if m.syncCancel != nil {
+		m.syncCancel()
 	}
 }
 
