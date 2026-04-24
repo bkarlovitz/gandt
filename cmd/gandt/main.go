@@ -225,7 +225,12 @@ func runOneAccountRefresh(ctx context.Context, paths config.Paths, cfg config.Co
 
 	if request.Kind == ui.RefreshRelistLabel {
 		backfiller := gandtsync.NewBackfiller(db, cfg, gmailClient)
-		backfill, err := backfiller.Backfill(ctx, account)
+		var backfill gandtsync.BackfillResult
+		if request.LabelID == "" {
+			backfill, err = backfiller.Backfill(ctx, account)
+		} else {
+			backfill, err = backfiller.BackfillLabel(ctx, account, request.LabelID)
+		}
 		if err != nil {
 			return gandtsync.AccountSyncResult{}, err
 		}
@@ -311,7 +316,11 @@ func buildTriageActor(paths config.Paths) ui.TriageActor {
 			return ui.TriageActionResult{}, err
 		}
 		charmlog.Info("action_success", "account_id", account.ID, "kind", request.Kind, "duration_ms", time.Since(actionStarted).Milliseconds())
-		return ui.TriageActionResult{Summary: triageActionSummary(request)}, nil
+		return ui.TriageActionResult{
+			Summary:   triageActionSummary(request),
+			LabelID:   request.LabelID,
+			LabelName: request.LabelName,
+		}, nil
 	})
 }
 

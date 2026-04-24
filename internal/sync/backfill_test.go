@@ -91,6 +91,37 @@ func TestBackfillerSkipsExcludedPolicyLabels(t *testing.T) {
 	}
 }
 
+func TestBackfillerBackfillLabelOnlyRelistsRequestedLabel(t *testing.T) {
+	ctx := context.Background()
+	db := migratedSyncTestDB(t)
+	account := seedSyncAccount(t, db)
+	seedSyncLabels(t, db, account.ID, "INBOX", "Label_1")
+
+	client := newFakeMessageReader()
+	client.pages["INBOX"] = []gmail.ListMessagesPage{{Messages: []gmail.MessageRef{{ID: "inbox-1", ThreadID: "thread-inbox"}}}}
+	client.pages["Label_1"] = []gmail.ListMessagesPage{{Messages: []gmail.MessageRef{{ID: "label-1", ThreadID: "thread-label"}}}}
+	client.metadata["label-1"] = gmail.Message{
+		ID:       "label-1",
+		ThreadID: "thread-label",
+		LabelIDs: []string{"Label_1"},
+		Headers:  []gmail.MessageHeader{{Name: "From", Value: "label@example.com"}},
+	}
+
+	result, err := NewBackfiller(db, config.Default(), client).BackfillLabel(ctx, account, "Label_1")
+	if err != nil {
+		t.Fatalf("backfill label: %v", err)
+	}
+	if len(result.Messages) != 1 || result.Messages[0].ID != "label-1" {
+		t.Fatalf("messages = %#v, want requested label message", result.Messages)
+	}
+	if len(result.Labels) != 1 || result.Labels[0].LabelID != "Label_1" {
+		t.Fatalf("labels = %#v, want only requested label", result.Labels)
+	}
+	if len(client.listCalls) != 1 || client.listCalls[0].labelID != "Label_1" {
+		t.Fatalf("list calls = %#v, want only Label_1 relisted", client.listCalls)
+	}
+}
+
 func TestBackfillerQueuesBodiesByPolicyDepthAndExclusion(t *testing.T) {
 	ctx := context.Background()
 	db := migratedSyncTestDB(t)

@@ -208,6 +208,81 @@ func TestSyncFallsBackOnExpiredHistoryAndPreservesCachedBodies(t *testing.T) {
 	}
 }
 
+func TestSyncDoesNotTreatMessageNotFoundAsExpiredHistory(t *testing.T) {
+	ctx := context.Background()
+	db := migratedSyncTestDB(t)
+	account := seedSyncAccountWithHistory(t, db, "100")
+	originalLastSync := *account.LastSyncAt
+	seedSyncLabels(t, db, account.ID, "INBOX")
+	seedMetadataPolicy(t, db, account.ID, "INBOX")
+
+	client := newFakeHistoryReader()
+	client.historyPages = []gmail.HistoryPage{{
+		HistoryID: "200",
+		Records: []gmail.HistoryRecord{{
+			MessagesAdded: []gmail.HistoryMessageChange{{Message: gmail.MessageRef{ID: "gone", ThreadID: "thread-gone"}}},
+		}},
+	}}
+	client.metadataErr["gone"] = gmail.ErrNotFound
+
+	_, err := NewDeltaSynchronizer(db, config.Default(), client).Sync(ctx, account)
+	if !errors.Is(err, gmail.ErrNotFound) || errors.Is(err, gmail.ErrHistoryGone) {
+		t.Fatalf("sync error = %v, want message not-found without history fallback marker", err)
+	}
+	if len(client.listPages) != 0 {
+		t.Fatalf("list pages touched = %#v, want no fallback backfill", client.listPages)
+	}
+	updatedAccount, err := cache.NewAccountRepository(db).Get(ctx, account.ID)
+	if err != nil {
+		t.Fatalf("get account: %v", err)
+	}
+	if updatedAccount.HistoryID != "100" || updatedAccount.LastSyncAt == nil || !updatedAccount.LastSyncAt.Equal(originalLastSync) {
+		t.Fatalf("account sync metadata = %#v, want unchanged after message not found", updatedAccount)
+	}
+}
+
+func TestDeltaSyncSkipsLabelAddedForExcludedUncachedMessage(t *testing.T) {
+	ctx := context.Background()
+	db := migratedSyncTestDB(t)
+	account := seedSyncAccountWithHistory(t, db, "100")
+	seedSyncLabels(t, db, account.ID, "Label_Secret")
+	if err := cache.NewCacheExclusionRepository(db).Upsert(ctx, cache.CacheExclusion{
+		AccountID:  account.ID,
+		MatchType:  "label",
+		MatchValue: "Label_Secret",
+		CreatedAt:  time.Now().UTC(),
+	}); err != nil {
+		t.Fatalf("upsert exclusion: %v", err)
+	}
+	client := newFakeHistoryReader()
+	client.historyPages = []gmail.HistoryPage{{
+		HistoryID: "200",
+		Records: []gmail.HistoryRecord{{
+			LabelsAdded: []gmail.HistoryLabelChange{{
+				Message:  gmail.MessageRef{ID: "secret-1", ThreadID: "thread-secret"},
+				LabelIDs: []string{"Label_Secret"},
+			}},
+		}},
+	}}
+	client.metadata["secret-1"] = gmail.Message{
+		ID:       "secret-1",
+		ThreadID: "thread-secret",
+		LabelIDs: []string{"Label_Secret"},
+		Headers:  []gmail.MessageHeader{{Name: "From", Value: "secret@example.com"}},
+	}
+
+	result, err := NewDeltaSynchronizer(db, config.Default(), client).DeltaSync(ctx, account)
+	if err != nil {
+		t.Fatalf("delta sync: %v", err)
+	}
+	if result.LabelsAdded != 0 {
+		t.Fatalf("labels added = %d, want no cache mapping for excluded message", result.LabelsAdded)
+	}
+	if _, err := cache.NewMessageRepository(db).Get(ctx, account.ID, "secret-1"); !errors.Is(err, cache.ErrMessageNotFound) {
+		t.Fatalf("excluded message error = %v, want ErrMessageNotFound", err)
+	}
+}
+
 func seedSyncAccountWithHistory(t *testing.T, db *sqlx.DB, historyID string) cache.Account {
 	t.Helper()
 
@@ -265,6 +340,7 @@ type fakeHistoryReader struct {
 	listPages         map[string][]gmail.ListMessagesPage
 	listPageIndex     map[string]int
 	metadata          map[string]gmail.Message
+	metadataErr       map[string]error
 	full              map[string]gmail.Message
 	historyCalls      []gmail.ListHistoryOptions
 	fullCalls         []string
@@ -276,6 +352,7 @@ func newFakeHistoryReader() *fakeHistoryReader {
 		listPages:     map[string][]gmail.ListMessagesPage{},
 		listPageIndex: map[string]int{},
 		metadata:      map[string]gmail.Message{},
+		metadataErr:   map[string]error{},
 		full:          map[string]gmail.Message{},
 	}
 }
@@ -307,6 +384,9 @@ func (f *fakeHistoryReader) ListHistory(ctx context.Context, opts gmail.ListHist
 }
 
 func (f *fakeHistoryReader) GetMessageMetadata(ctx context.Context, id string, headers ...string) (gmail.Message, error) {
+	if err, ok := f.metadataErr[id]; ok {
+		return gmail.Message{}, err
+	}
 	message, ok := f.metadata[id]
 	if !ok {
 		return gmail.Message{}, fmt.Errorf("missing metadata fixture %s", id)

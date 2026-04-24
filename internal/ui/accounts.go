@@ -109,7 +109,9 @@ type TriageActionRequest struct {
 }
 
 type TriageActionResult struct {
-	Summary string
+	Summary   string
+	LabelID   string
+	LabelName string
 }
 
 type TriageActor interface {

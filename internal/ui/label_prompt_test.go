@@ -8,7 +8,7 @@ import (
 )
 
 func TestLabelAddPromptCreatesLabelAndAppliesSelection(t *testing.T) {
-	actor := &fakeTriageActor{result: TriageActionResult{Summary: "label added"}}
+	actor := &fakeTriageActor{result: TriageActionResult{Summary: "label added", LabelID: "Label_real", LabelName: "Projects"}}
 	message := actionMessage([]string{"INBOX"})
 	message.Unread = true
 	model := actionModel(message, actor)
@@ -37,6 +37,39 @@ func TestLabelAddPromptCreatesLabelAndAppliesSelection(t *testing.T) {
 	_ = cmd()
 	if len(actor.requests) != 1 || !actor.requests[0].CreateLabel || actor.requests[0].LabelName != "Projects" {
 		t.Fatalf("requests = %#v, want create label action", actor.requests)
+	}
+}
+
+func TestLabelCreateReconcilesGmailLabelIDAfterSuccess(t *testing.T) {
+	actor := &fakeTriageActor{result: TriageActionResult{Summary: "label added", LabelID: "Label_123", LabelName: "Projects"}}
+	model := actionModel(actionMessage([]string{"INBOX"}), actor)
+	model = New(config.Default(), WithMailbox(model.mailbox), WithTriageActor(actor))
+
+	updated, cmd := model.startTriageAction(TriageActionRequest{
+		Kind:        TriageLabelAdd,
+		LabelID:     "Label_Projects",
+		LabelName:   "Projects",
+		Add:         true,
+		CreateLabel: true,
+	})
+	model = updated.(Model)
+	if cmd == nil {
+		t.Fatal("expected label add command")
+	}
+	if !hasLabel(model.mailbox.Messages[0].LabelIDs, "Label_Projects") {
+		t.Fatalf("labels = %#v, want temporary optimistic label", model.mailbox.Messages[0].LabelIDs)
+	}
+
+	updated, _ = model.Update(cmd())
+	model = updated.(Model)
+	if hasLabel(model.mailbox.Messages[0].LabelIDs, "Label_Projects") || !hasLabel(model.mailbox.Messages[0].LabelIDs, "Label_123") {
+		t.Fatalf("labels = %#v, want real Gmail label ID after success", model.mailbox.Messages[0].LabelIDs)
+	}
+	if labelKey(model.mailbox.Labels[1]) != "Label_123" {
+		t.Fatalf("labels = %#v, want sidebar label reconciled to Gmail ID", model.mailbox.Labels)
+	}
+	if _, ok := model.mailbox.MessagesByLabel["Label_123"]; !ok {
+		t.Fatalf("messages by label = %#v, want real Gmail label key", model.mailbox.MessagesByLabel)
 	}
 }
 

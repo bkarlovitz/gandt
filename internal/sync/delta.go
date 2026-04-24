@@ -121,6 +121,9 @@ func (s DeltaSynchronizer) DeltaSync(ctx context.Context, account cache.Account)
 			MaxResults:     historyPageSize,
 		})
 		if err != nil {
+			if errors.Is(err, gmail.ErrHistoryGone) || errors.Is(err, gmail.ErrNotFound) {
+				err = errors.Join(gmail.ErrHistoryGone, err)
+			}
 			s.log("delta_sync_failure", account, map[string]any{"duration_ms": durationMillis(started), "error": err.Error()})
 			return DeltaSyncResult{}, err
 		}
@@ -172,7 +175,7 @@ func durationMillis(start time.Time) int64 {
 
 func (s DeltaSynchronizer) applyHistoryRecord(ctx context.Context, account cache.Account, record gmail.HistoryRecord, result *DeltaSyncResult) error {
 	for _, change := range record.MessagesAdded {
-		if err := s.fetchAndPersistChangedMessage(ctx, account, change.Message); err != nil {
+		if _, err := s.fetchAndPersistChangedMessage(ctx, account, change.Message); err != nil {
 			return err
 		}
 		result.MessagesAdded++
@@ -190,8 +193,12 @@ func (s DeltaSynchronizer) applyHistoryRecord(ctx context.Context, account cache
 		if change.Message.ID == "" {
 			continue
 		}
-		if err := s.ensureChangedMessageCached(ctx, account, change.Message); err != nil {
+		persisted, err := s.ensureChangedMessageCached(ctx, account, change.Message)
+		if err != nil {
 			return err
+		}
+		if !persisted {
+			continue
 		}
 		for _, labelID := range change.LabelIDs {
 			if err := s.msgLabels.Upsert(ctx, cache.MessageLabel{AccountID: account.ID, MessageID: change.Message.ID, LabelID: labelID}); err != nil {
@@ -233,7 +240,7 @@ func (s DeltaSynchronizer) missingBodyQueue(ctx context.Context, accountID strin
 }
 
 func isExpiredHistoryError(err error) bool {
-	return errors.Is(err, gmail.ErrHistoryGone) || errors.Is(err, gmail.ErrNotFound)
+	return errors.Is(err, gmail.ErrHistoryGone)
 }
 
 func latestHistoryID(messages []gmail.Message) string {
@@ -256,25 +263,25 @@ func latestHistoryID(messages []gmail.Message) string {
 	return out
 }
 
-func (s DeltaSynchronizer) ensureChangedMessageCached(ctx context.Context, account cache.Account, ref gmail.MessageRef) error {
+func (s DeltaSynchronizer) ensureChangedMessageCached(ctx context.Context, account cache.Account, ref gmail.MessageRef) (bool, error) {
 	if ref.ID == "" {
-		return nil
+		return false, nil
 	}
 	if _, err := s.messages.Get(ctx, account.ID, ref.ID); err == nil {
-		return nil
+		return true, nil
 	} else if !errors.Is(err, cache.ErrMessageNotFound) {
-		return err
+		return false, err
 	}
 	return s.fetchAndPersistChangedMessage(ctx, account, ref)
 }
 
-func (s DeltaSynchronizer) fetchAndPersistChangedMessage(ctx context.Context, account cache.Account, ref gmail.MessageRef) error {
+func (s DeltaSynchronizer) fetchAndPersistChangedMessage(ctx context.Context, account cache.Account, ref gmail.MessageRef) (bool, error) {
 	if ref.ID == "" {
-		return nil
+		return false, nil
 	}
 	message, err := s.gmail.GetMessageMetadata(ctx, ref.ID, MetadataHeaders...)
 	if err != nil {
-		return err
+		return false, err
 	}
 	message.ThreadID = firstNonEmpty(message.ThreadID, ref.ThreadID)
 	labelIDs := mergeLabels(nil, message.LabelIDs)
@@ -285,19 +292,22 @@ func (s DeltaSynchronizer) fetchAndPersistChangedMessage(ctx context.Context, ac
 		LabelIDs:     labelIDs,
 	})
 	if err != nil {
-		return err
+		return false, err
 	}
 	if decision.Excluded || !decision.Persist {
-		return nil
+		return false, nil
 	}
 	if decision.Depth == config.CacheDepthBody || decision.Depth == config.CacheDepthFull {
 		full, err := s.gmail.GetMessageFull(ctx, ref.ID)
 		if err != nil {
-			return err
+			return false, err
 		}
 		full.ThreadID = firstNonEmpty(full.ThreadID, message.ThreadID, ref.ThreadID)
-		_, err = s.backfill.PersistFullMessage(ctx, account, full)
-		return err
+		cached, err := s.backfill.PersistFullMessage(ctx, account, full)
+		return cached, err
 	}
-	return s.backfill.persistMetadata(ctx, account.ID, message, labelIDs)
+	if err := s.backfill.persistMetadata(ctx, account.ID, message, labelIDs); err != nil {
+		return false, err
+	}
+	return true, nil
 }

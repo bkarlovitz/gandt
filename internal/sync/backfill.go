@@ -72,6 +72,27 @@ func (b Backfiller) Backfill(ctx context.Context, account cache.Account) (Backfi
 		return BackfillResult{}, err
 	}
 
+	return b.backfillLabels(ctx, account, labels)
+}
+
+func (b Backfiller) BackfillLabel(ctx context.Context, account cache.Account, labelID string) (BackfillResult, error) {
+	if b.gmail == nil {
+		return BackfillResult{}, fmt.Errorf("gmail client is required")
+	}
+
+	labels, err := b.labels.List(ctx, account.ID)
+	if err != nil {
+		return BackfillResult{}, err
+	}
+	for _, label := range labels {
+		if label.ID == labelID {
+			return b.backfillLabels(ctx, account, []cache.Label{label})
+		}
+	}
+	return BackfillResult{}, fmt.Errorf("label %q is not cached", labelID)
+}
+
+func (b Backfiller) backfillLabels(ctx context.Context, account cache.Account, labels []cache.Label) (BackfillResult, error) {
 	result := BackfillResult{}
 	refsByID := map[string]gmail.MessageRef{}
 	labelsByMessage := map[string][]string{}

@@ -245,6 +245,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.applyStatusOrError("action failed: "+msg.Err.Error(), msg.Err, msg.Request.Account)
 			return m, nil
 		}
+		m.reconcileTriageResult(msg.Request, msg.Result)
 		summary := msg.Result.Summary
 		if msg.Request.Undo {
 			summary = triageDoneSummary(msg.Request)
@@ -853,6 +854,33 @@ func (m *Model) applyOptimisticAction(request TriageActionRequest) {
 	}
 }
 
+func (m *Model) reconcileTriageResult(request TriageActionRequest, result TriageActionResult) {
+	if !request.CreateLabel || result.LabelID == "" || result.LabelID == request.LabelID {
+		return
+	}
+	oldID := request.LabelID
+	newID := result.LabelID
+	newName := firstNonEmpty(result.LabelName, request.LabelName, newID)
+	for i := range m.mailbox.Labels {
+		if labelKey(m.mailbox.Labels[i]) == oldID {
+			m.mailbox.Labels[i].ID = newID
+			m.mailbox.Labels[i].Name = newName
+		}
+	}
+	if m.mailbox.MessagesByLabel != nil {
+		if messages, ok := m.mailbox.MessagesByLabel[oldID]; ok {
+			delete(m.mailbox.MessagesByLabel, oldID)
+			for i := range messages {
+				messages[i].LabelIDs = replaceLabelID(messages[i].LabelIDs, oldID, newID)
+			}
+			m.mailbox.MessagesByLabel[newID] = messages
+		}
+	}
+	m.updateMessageCopies(request.MessageID, func(message *Message) {
+		message.LabelIDs = replaceLabelID(message.LabelIDs, oldID, newID)
+	})
+}
+
 func (m *Model) removeMessageFromCurrentView(messageID string) {
 	m.mailbox.Messages = removeMessageByID(m.mailbox.Messages, messageID)
 	if len(m.mailbox.Labels) > 0 && len(m.mailbox.MessagesByLabel) > 0 {
@@ -1075,6 +1103,16 @@ func setLabel(labels []string, labelID string, present bool) []string {
 	}
 	out := append([]string{}, labels[:index]...)
 	return append(out, labels[index+1:]...)
+}
+
+func replaceLabelID(labels []string, oldID string, newID string) []string {
+	out := append([]string{}, labels...)
+	for i, labelID := range out {
+		if labelID == oldID {
+			out[i] = newID
+		}
+	}
+	return out
 }
 
 func (m Model) labelByNameOrID(value string) Label {
