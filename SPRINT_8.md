@@ -7,7 +7,7 @@ Users can compose new mail, reply, reply-all, forward, autosave Gmail drafts, se
 Grounded in `prd.md` sections 8, 9, 13.3, 13.5, 13.7, 13.8, 14, 15, 17, 19, 20, and milestone M5.
 
 ## Tasks
-- [ ] **Task 8.1**: Implement compose data model
+- [x] **Task 8.1**: Implement compose data model
   - Add typed structs for compose headers, recipients, body source, attachments, draft IDs, reply context, and send state.
   - Validate email address fields enough to catch obvious local errors before Gmail API calls.
   - Keep active account and `sendAs` alias explicit.
