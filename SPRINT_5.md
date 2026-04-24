@@ -43,7 +43,7 @@ Grounded in `prd.md` sections 7, 10, 11, 16, 17, 18, 20, and milestone M2.
   - Purge already-cached rows that newly match an exclusion after user confirmation.
   - Validation: `go test ./internal/sync ./internal/cache` verifies sender/domain/label matches, no persisted excluded bodies, and confirmed purge.
 
-- [ ] **Task 5.7**: Add `:cache-exclude` command flow
+- [x] **Task 5.7**: Add `:cache-exclude` command flow
   - Parse `:cache-exclude <sender|domain|label> <value>`.
   - Preview how many cached rows would be purged before committing.
   - Show a clear success or cancel state.

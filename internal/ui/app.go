@@ -74,6 +74,9 @@ type Model struct {
 	savingCachePolicy     bool
 	cachePolicyTable      CachePolicyTable
 	selectedCachePolicy   int
+	cacheExclusionStore   CacheExclusionStore
+	pendingCacheExclusion *CacheExclusionPreview
+	loadingCacheExclusion bool
 	nextActionID          int
 	pendingActions        map[int]triageSnapshot
 	undo                  *undoState
@@ -161,6 +164,14 @@ func WithCachePolicyStore(store CachePolicyStore) Option {
 	return func(m *Model) {
 		if store != nil {
 			m.cachePolicyStore = store
+		}
+	}
+}
+
+func WithCacheExclusionStore(store CacheExclusionStore) Option {
+	return func(m *Model) {
+		if store != nil {
+			m.cacheExclusionStore = store
 		}
 	}
 }
@@ -331,6 +342,26 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.manualRefresher != nil {
 			return m.startRefresh(RefreshAll)
 		}
+	case cacheExclusionPreviewDoneMsg:
+		m.loadingCacheExclusion = false
+		if msg.Err != nil {
+			m.statusMessage = "cache exclusion preview failed: " + msg.Err.Error()
+			m.toastMessage = m.statusMessage
+			return m, nil
+		}
+		m.pendingCacheExclusion = &msg.Preview
+		m.statusMessage = cacheExclusionPreviewSummary(msg.Preview)
+		m.toastMessage = m.statusMessage
+	case cacheExclusionConfirmDoneMsg:
+		m.loadingCacheExclusion = false
+		m.pendingCacheExclusion = nil
+		if msg.Err != nil {
+			m.statusMessage = "cache exclusion failed: " + msg.Err.Error()
+			m.toastMessage = m.statusMessage
+			return m, nil
+		}
+		m.statusMessage = fmt.Sprintf("cache exclusion saved; purged %d messages", msg.Result.DeletedMessages)
+		m.toastMessage = m.statusMessage
 	case SyncUpdateMsg:
 		if msg.Stopped {
 			return m, nil
@@ -397,6 +428,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.stopSync()
 		m.quitting = true
 		return m, tea.Quit
+	}
+	if m.mode == ModeNormal && m.pendingCacheExclusion != nil {
+		return m.handleCacheExclusionConfirmation(key)
 	}
 
 	switch m.mode {
@@ -632,12 +666,37 @@ func (m Model) selectedCachePolicyRow() (CachePolicyRow, bool) {
 	return m.cachePolicyTable.Rows[clamp(m.selectedCachePolicy, 0, len(m.cachePolicyTable.Rows)-1)], true
 }
 
+func (m Model) handleCacheExclusionConfirmation(key string) (tea.Model, tea.Cmd) {
+	switch key {
+	case "y", "Y":
+		request := m.pendingCacheExclusion.Request
+		m.loadingCacheExclusion = true
+		m.statusMessage = "saving cache exclusion..."
+		m.toastMessage = m.statusMessage
+		return m, m.runCacheExclusionConfirm(request)
+	case "n", "N", "esc":
+		m.pendingCacheExclusion = nil
+		m.statusMessage = "cache exclusion canceled"
+		m.toastMessage = m.statusMessage
+		return m, nil
+	default:
+		m.statusMessage = "confirm cache exclusion with y or n"
+		m.toastMessage = m.statusMessage
+		return m, nil
+	}
+}
+
 func (m Model) submitCommand() (tea.Model, tea.Cmd) {
 	command := strings.TrimSpace(strings.TrimPrefix(m.commandInput, ":"))
 	m.mode = ModeNormal
 	m.commandInput = ""
+	fields := strings.Fields(command)
+	commandName := command
+	if len(fields) > 0 {
+		commandName = fields[0]
+	}
 
-	switch command {
+	switch commandName {
 	case "add-account":
 		if m.addingAccount || m.replacingCreds {
 			m.statusMessage = "account operation already running"
@@ -694,6 +753,8 @@ func (m Model) submitCommand() (tea.Model, tea.Cmd) {
 		m.statusMessage = "loading cache policy..."
 		m.toastMessage = m.statusMessage
 		return m, m.runCachePolicyLoad()
+	case "cache-exclude":
+		return m.startCacheExclusionPreview(fields)
 	case "quit", "q":
 		m.stopSync()
 		m.quitting = true
@@ -704,6 +765,49 @@ func (m Model) submitCommand() (tea.Model, tea.Cmd) {
 		m.statusMessage = "unknown command: " + command
 		return m, nil
 	}
+}
+
+func (m Model) startCacheExclusionPreview(fields []string) (tea.Model, tea.Cmd) {
+	if len(fields) < 3 {
+		m.statusMessage = "usage: :cache-exclude <sender|domain|label> <value>"
+		m.toastMessage = m.statusMessage
+		return m, nil
+	}
+	matchType := fields[1]
+	if !validCacheExclusionType(matchType) {
+		m.statusMessage = "invalid cache exclusion type: " + matchType
+		m.toastMessage = m.statusMessage
+		return m, nil
+	}
+	if m.cacheExclusionStore == nil {
+		m.statusMessage = "cache exclusion unavailable"
+		m.toastMessage = m.statusMessage
+		return m, nil
+	}
+	if m.loadingCacheExclusion {
+		m.statusMessage = "cache exclusion already running"
+		m.toastMessage = m.statusMessage
+		return m, nil
+	}
+	request := CacheExclusionRequest{
+		Account:    m.mailbox.Account,
+		MatchType:  matchType,
+		MatchValue: strings.TrimSpace(strings.Join(fields[2:], " ")),
+	}
+	m.loadingCacheExclusion = true
+	m.pendingCacheExclusion = nil
+	m.statusMessage = "previewing cache exclusion..."
+	m.toastMessage = m.statusMessage
+	return m, m.runCacheExclusionPreview(request)
+}
+
+func cacheExclusionPreviewSummary(preview CacheExclusionPreview) string {
+	return fmt.Sprintf("cache exclusion preview: %d messages, %d bodies, %d attachments, %s; y confirm / n cancel",
+		preview.MessageCount,
+		preview.BodyCount,
+		preview.AttachmentCount,
+		formatBytes(preview.EstimatedBytes),
+	)
 }
 
 func (m Model) startLabelPrompt(action TriageActionKind) (tea.Model, tea.Cmd) {
@@ -866,6 +970,20 @@ func (m Model) runCachePolicyReset(row CachePolicyRow) tea.Cmd {
 	return func() tea.Msg {
 		result, err := m.cachePolicyStore.ResetCachePolicy(row)
 		return cachePolicyResetDoneMsg{Row: result, Err: err}
+	}
+}
+
+func (m Model) runCacheExclusionPreview(request CacheExclusionRequest) tea.Cmd {
+	return func() tea.Msg {
+		preview, err := m.cacheExclusionStore.PreviewCacheExclusion(request)
+		return cacheExclusionPreviewDoneMsg{Preview: preview, Err: err}
+	}
+}
+
+func (m Model) runCacheExclusionConfirm(request CacheExclusionRequest) tea.Cmd {
+	return func() tea.Msg {
+		result, err := m.cacheExclusionStore.ConfirmCacheExclusion(request)
+		return cacheExclusionConfirmDoneMsg{Result: result, Err: err}
 	}
 }
 

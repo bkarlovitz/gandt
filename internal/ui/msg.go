@@ -59,3 +59,13 @@ type cachePolicyResetDoneMsg struct {
 	Row CachePolicyRow
 	Err error
 }
+
+type cacheExclusionPreviewDoneMsg struct {
+	Preview CacheExclusionPreview
+	Err     error
+}
+
+type cacheExclusionConfirmDoneMsg struct {
+	Result CacheExclusionResult
+	Err    error
+}

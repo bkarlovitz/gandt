@@ -65,6 +65,7 @@ func main() {
 		ui.WithTriageActor(buildTriageActor(paths)),
 		ui.WithCacheDashboardLoader(buildCacheDashboardLoader(paths, cfg)),
 		ui.WithCachePolicyStore(buildCachePolicyStore(paths, cfg)),
+		ui.WithCacheExclusionStore(buildCacheExclusionStore(paths)),
 		ui.WithSyncCoordinator(buildSyncCoordinator(paths, cfg)),
 	}
 	if mailbox, ok := loadInitialMailbox(paths, cfg); ok {
@@ -402,6 +403,88 @@ func cloneMainInt(value *int) *int {
 	}
 	out := *value
 	return &out
+}
+
+func buildCacheExclusionStore(paths config.Paths) ui.CacheExclusionStore {
+	return ui.CacheExclusionStoreFunc{
+		PreviewFn: func(request ui.CacheExclusionRequest) (ui.CacheExclusionPreview, error) {
+			ctx := context.Background()
+			db, err := cache.Open(ctx, paths)
+			if err != nil {
+				return ui.CacheExclusionPreview{}, err
+			}
+			defer db.Close()
+			if err := cache.Migrate(ctx, db); err != nil {
+				return ui.CacheExclusionPreview{}, err
+			}
+			account, err := cacheExclusionAccount(ctx, db, request.Account)
+			if err != nil {
+				return ui.CacheExclusionPreview{}, err
+			}
+			plan, err := cache.NewCacheExclusionService(db).PreviewPurge(ctx, cache.CacheExclusion{
+				AccountID:  account.ID,
+				MatchType:  request.MatchType,
+				MatchValue: request.MatchValue,
+			})
+			if err != nil {
+				return ui.CacheExclusionPreview{}, err
+			}
+			return uiCacheExclusionPreview(request, plan), nil
+		},
+		ConfirmFn: func(request ui.CacheExclusionRequest) (ui.CacheExclusionResult, error) {
+			ctx := context.Background()
+			db, err := cache.Open(ctx, paths)
+			if err != nil {
+				return ui.CacheExclusionResult{}, err
+			}
+			defer db.Close()
+			if err := cache.Migrate(ctx, db); err != nil {
+				return ui.CacheExclusionResult{}, err
+			}
+			account, err := cacheExclusionAccount(ctx, db, request.Account)
+			if err != nil {
+				return ui.CacheExclusionResult{}, err
+			}
+			result, err := cache.NewCacheExclusionService(db).ConfirmPurge(ctx, cache.CacheExclusion{
+				AccountID:  account.ID,
+				MatchType:  request.MatchType,
+				MatchValue: request.MatchValue,
+			})
+			if err != nil {
+				return ui.CacheExclusionResult{}, err
+			}
+			return ui.CacheExclusionResult{
+				Preview:         uiCacheExclusionPreview(request, result.Plan),
+				DeletedMessages: result.DeletedMessages,
+			}, nil
+		},
+	}
+}
+
+func cacheExclusionAccount(ctx context.Context, db *sqlx.DB, accountName string) (cache.Account, error) {
+	accounts, err := cache.NewAccountRepository(db).List(ctx)
+	if err != nil {
+		return cache.Account{}, err
+	}
+	if len(accounts) == 0 {
+		return cache.Account{}, fmt.Errorf("no accounts configured")
+	}
+	for _, account := range accounts {
+		if account.Email == accountName {
+			return account, nil
+		}
+	}
+	return accounts[0], nil
+}
+
+func uiCacheExclusionPreview(request ui.CacheExclusionRequest, plan cache.CacheExclusionPurgePlan) ui.CacheExclusionPreview {
+	return ui.CacheExclusionPreview{
+		Request:         request,
+		MessageCount:    plan.MessageCount,
+		BodyCount:       plan.BodyCount,
+		AttachmentCount: plan.AttachmentCount,
+		EstimatedBytes:  plan.EstimatedBytes,
+	}
 }
 
 func runOneAccountRefresh(ctx context.Context, paths config.Paths, cfg config.Config, request ui.RefreshRequest) (gandtsync.AccountSyncResult, error) {
