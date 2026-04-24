@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -80,6 +81,72 @@ func TestAccountBootstrapperUsesConfiguredColor(t *testing.T) {
 	}
 	if account.Color != "#123456" {
 		t.Fatalf("account color = %q, want configured color", account.Color)
+	}
+}
+
+func TestAccountBootstrapperAddsMultipleDistinctAccounts(t *testing.T) {
+	ctx := context.Background()
+	db := cacheTestDB(t)
+	store := NewSecretStore(newFakeKeyring())
+	bootstrapper := NewAccountBootstrapper(db, store)
+
+	first, err := bootstrapper.Bootstrap(ctx, fakeGmailBootstrapClient{
+		profile: gmail.Profile{EmailAddress: "one@example.com", HistoryID: "1"},
+		labels:  []gmail.Label{{ID: "INBOX", Name: "Inbox", Type: "system"}},
+	}, &oauth2.Token{AccessToken: "one"}, "")
+	if err != nil {
+		t.Fatalf("bootstrap first account: %v", err)
+	}
+	second, err := bootstrapper.Bootstrap(ctx, fakeGmailBootstrapClient{
+		profile: gmail.Profile{EmailAddress: "two@example.com", HistoryID: "2"},
+		labels:  []gmail.Label{{ID: "INBOX", Name: "Inbox", Type: "system"}},
+	}, &oauth2.Token{AccessToken: "two"}, "")
+	if err != nil {
+		t.Fatalf("bootstrap second account: %v", err)
+	}
+	if first.ID == second.ID {
+		t.Fatalf("account IDs matched: %q", first.ID)
+	}
+
+	accounts, err := cache.NewAccountRepository(db).List(ctx)
+	if err != nil {
+		t.Fatalf("list accounts: %v", err)
+	}
+	if len(accounts) != 2 || accounts[0].Email != "one@example.com" || accounts[1].Email != "two@example.com" {
+		t.Fatalf("accounts = %#v, want two distinct accounts", accounts)
+	}
+	if _, err := store.OAuthToken(first.ID); err != nil {
+		t.Fatalf("first token missing: %v", err)
+	}
+	if _, err := store.OAuthToken(second.ID); err != nil {
+		t.Fatalf("second token missing: %v", err)
+	}
+}
+
+func TestAccountBootstrapperRejectsDuplicateAuthorizedEmail(t *testing.T) {
+	ctx := context.Background()
+	db := cacheTestDB(t)
+	store := NewSecretStore(newFakeKeyring())
+	bootstrapper := NewAccountBootstrapper(db, store)
+
+	first, err := bootstrapper.Bootstrap(ctx, fakeGmailBootstrapClient{
+		profile: gmail.Profile{EmailAddress: "me@example.com", HistoryID: "1"},
+	}, &oauth2.Token{AccessToken: "first"}, "")
+	if err != nil {
+		t.Fatalf("bootstrap first account: %v", err)
+	}
+	if _, err := bootstrapper.Bootstrap(ctx, fakeGmailBootstrapClient{
+		profile: gmail.Profile{EmailAddress: "ME@example.com", HistoryID: "2"},
+	}, &oauth2.Token{AccessToken: "second"}, ""); !errors.Is(err, cache.ErrDuplicateEmail) {
+		t.Fatalf("duplicate bootstrap error = %v, want ErrDuplicateEmail", err)
+	}
+
+	accounts, err := cache.NewAccountRepository(db).List(ctx)
+	if err != nil {
+		t.Fatalf("list accounts: %v", err)
+	}
+	if len(accounts) != 1 || accounts[0].ID != first.ID {
+		t.Fatalf("accounts after duplicate = %#v, want first account only", accounts)
 	}
 }
 

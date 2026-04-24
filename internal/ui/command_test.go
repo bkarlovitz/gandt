@@ -68,6 +68,31 @@ func TestAddAccountCommandAppliesEmptyLabelSuccess(t *testing.T) {
 	}
 }
 
+func TestAddAccountCommandCanAddAnotherAccountFromRealMailbox(t *testing.T) {
+	model := New(config.Default(), WithAccountAdder(AccountAdderFunc(func() (AccountAddResult, error) {
+		return AccountAddResult{
+			Account: "second@example.com",
+			Labels:  []Label{{ID: "INBOX", Name: "Inbox", Unread: 1, System: true}},
+		}, nil
+	})))
+	model.mailbox = RealAccountMailbox("first@example.com", []Label{{ID: "INBOX", Name: "Inbox", System: true}}, map[string][]Message{
+		"INBOX": {{ID: "first-message", ThreadID: "first-thread", Subject: "First"}},
+	})
+
+	updated, cmd := submitTestCommand(model, "add-account")
+	if cmd == nil {
+		t.Fatal("expected add-account command")
+	}
+	updated, _ = updated.(Model).Update(cmd())
+	got := updated.(Model)
+	if got.mailbox.Account != "second@example.com" || len(got.mailbox.Labels) != 1 {
+		t.Fatalf("mailbox = %#v, want newly added second account active", got.mailbox)
+	}
+	if strings.Contains(got.View(), "first-message") {
+		t.Fatalf("view leaked previous account message after add: %q", got.View())
+	}
+}
+
 func TestAddAccountCommandShowsErrorAndKeepsFakeInbox(t *testing.T) {
 	model := New(config.Default(), WithAccountAdder(AccountAdderFunc(func() (AccountAddResult, error) {
 		return AccountAddResult{}, errors.New("oauth failed")

@@ -13,7 +13,7 @@ Grounded in `prd.md` sections 1, 3, 4, 7, 8, 10, 12, 13.1, 13.6, 16, 20, and mil
   - Store non-secret registry data in SQLite and the configured accounts file as required by the PRD.
   - Validation: `go test ./internal/auth ./internal/cache` covers multiple accounts, restart reload, and duplicate email handling.
 
-- [ ] **Task 6.2**: Extend account add for repeated accounts
+- [x] **Task 6.2**: Extend account add for repeated accounts
   - Allow `:add-account` to add second and third accounts without disrupting existing sync state.
   - Prevent accidental duplicate authorization of the same email.
   - Start first-time backfill for the new account only.

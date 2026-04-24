@@ -122,6 +122,48 @@ func TestBackfillerBackfillLabelOnlyRelistsRequestedLabel(t *testing.T) {
 	}
 }
 
+func TestBackfillerForNewAccountDoesNotTouchExistingAccountState(t *testing.T) {
+	ctx := context.Background()
+	db := migratedSyncTestDB(t)
+	accounts := cache.NewAccountRepository(db)
+	existing, err := accounts.Create(ctx, cache.CreateAccountParams{Email: "existing@example.com", HistoryID: "old-history"})
+	if err != nil {
+		t.Fatalf("create existing account: %v", err)
+	}
+	added, err := accounts.Create(ctx, cache.CreateAccountParams{Email: "added@example.com", HistoryID: "new-history"})
+	if err != nil {
+		t.Fatalf("create added account: %v", err)
+	}
+	seedSyncLabels(t, db, existing.ID, "INBOX")
+	seedSyncLabels(t, db, added.ID, "INBOX")
+
+	client := newFakeMessageReader()
+	client.pages["INBOX"] = []gmail.ListMessagesPage{{Messages: []gmail.MessageRef{{ID: "shared-gmail-id", ThreadID: "thread-added"}}}}
+	client.metadata["shared-gmail-id"] = gmail.Message{
+		ID:       "shared-gmail-id",
+		ThreadID: "thread-added",
+		LabelIDs: []string{"INBOX"},
+		Headers:  []gmail.MessageHeader{{Name: "From", Value: "added@example.com"}},
+	}
+
+	if _, err := NewBackfiller(db, config.Default(), client).Backfill(ctx, added); err != nil {
+		t.Fatalf("backfill added account: %v", err)
+	}
+	if _, err := cache.NewMessageRepository(db).Get(ctx, added.ID, "shared-gmail-id"); err != nil {
+		t.Fatalf("added account message missing: %v", err)
+	}
+	if _, err := cache.NewMessageRepository(db).Get(ctx, existing.ID, "shared-gmail-id"); !errors.Is(err, cache.ErrMessageNotFound) {
+		t.Fatalf("existing account message error = %v, want ErrMessageNotFound", err)
+	}
+	reloadedExisting, err := accounts.Get(ctx, existing.ID)
+	if err != nil {
+		t.Fatalf("reload existing account: %v", err)
+	}
+	if reloadedExisting.HistoryID != "old-history" {
+		t.Fatalf("existing history = %q, want old-history", reloadedExisting.HistoryID)
+	}
+}
+
 func TestBackfillerQueuesBodiesByPolicyDepthAndExclusion(t *testing.T) {
 	ctx := context.Background()
 	db := migratedSyncTestDB(t)
