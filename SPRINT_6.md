@@ -84,3 +84,8 @@ Grounded in `prd.md` sections 1, 3, 4, 7, 8, 10, 12, 13.1, 13.6, 16, 20, and mil
   - Confirm read, sync, triage, cache policies, and switcher behavior work identically for each account.
   - Confirm account switching is instant and per-account cache settings differ.
   - Validation: manual QA confirms all M3 acceptance criteria from `prd.md`.
+
+  Blocked:
+  - Completing this acceptance task requires three real Gmail test accounts, Google Desktop OAuth client credentials, and browser authorization by a human operator.
+  - The automated Sprint 6 coverage now exercises the M3 behavior with fixture accounts: add/remove, switcher latency, read isolation, triage routing, independent sync, per-account policies, command routing, and three-account startup performance.
+  - Manual QA can resume by launching `gandt`, configuring OAuth client credentials, adding three test Gmail accounts with `:add-account`, then verifying read, sync, triage, cache policy differences, and instant switching for each account.
