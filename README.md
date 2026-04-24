@@ -1,14 +1,12 @@
 # G&T
 
-G&T is a terminal-native Gmail client for keyboard-driven inbox triage. The binary is named `gandt`; the ampersand is display-only and is not used in paths, commands, or identifiers.
+G&T is a terminal-native Gmail client for keyboard-driven inbox triage. The binary, config directory, and cache paths are named `gandt`; `G&T` is display text only.
 
-This repository has completed the Sprint 3 implementation for the M1
-single-account read-only path: the app can configure bring-your-own Google
-OAuth client credentials, run a loopback OAuth account-add flow, backfill
-policy-selected Gmail metadata and bodies into SQLite, browse cached labels and
-threads, and load cached or streamed thread bodies in the reader. The real
-Gmail M1 acceptance path still requires manual QA with a test Gmail account and
-Google Desktop OAuth client credentials.
+G&T uses the Gmail API directly, not IMAP. Users bring their own Google Desktop OAuth client credentials. OAuth client credentials and account tokens are stored in the OS keychain, not in `config.toml`.
+
+## Status
+
+The v1 implementation covers Gmail account setup, policy-aware SQLite caching, multi-account switching, triage actions, online and offline search, compose/reply/forward/send, drafts, attachments, cache controls, render-mode cycling, and release packaging. Real Gmail end-to-end release QA is still required before tagging v1.
 
 ## Platforms
 
@@ -16,34 +14,48 @@ Google Desktop OAuth client credentials.
 - Linux
 - Windows best-effort
 
-G&T builds as a single Go binary with `CGO_ENABLED=0`. Go 1.25 or newer is required.
+G&T builds as a single static Go binary with `CGO_ENABLED=0`. Go 1.25 or newer is required for local development.
 
-## Gmail Access
+## Installation
 
-Gmail integration will use the Gmail API directly, not IMAP. Users must bring their own Google OAuth client credentials; shared hosted credentials are out of scope for v1. Tokens and client credentials will be stored in the OS keychain, not in `config.toml`.
+From source:
 
-No OAuth credentials or Gmail account are required to launch the TUI and inspect
-the no-account/fake-inbox states. Adding a Gmail account with `:add-account`
-requires Google Desktop OAuth client credentials and browser authorization. Use
-`:replace-credentials` to replace the stored OAuth client credentials.
+```sh
+go install github.com/bkarlovitz/gandt/cmd/gandt@latest
+```
 
-## Local Development
+Local checkout:
 
 ```sh
 go mod download
-make fmt
-make test
-make vet
 make build
-make run
+./bin/gandt --version
+./bin/gandt
 ```
 
-Useful direct commands:
+Snapshot release artifacts can be built with:
 
 ```sh
-go run ./cmd/gandt --version
-CGO_ENABLED=0 go test ./...
+goreleaser release --snapshot --clean
 ```
+
+## First Run And OAuth
+
+Launch without accounts to inspect the TUI:
+
+```sh
+gandt
+```
+
+Add a Gmail account from command mode:
+
+```text
+:add-account
+```
+
+The account flow asks for Google Desktop OAuth client credentials, opens a browser for consent, stores credentials and tokens in the OS keychain, then backfills Gmail metadata and policy-selected bodies into the local cache.
+
+Use `:replace-credentials` to replace the stored Google OAuth client credentials. If Gmail access is revoked, re-authenticate the account with `:add-account`.
 
 ## Local Files
 
@@ -51,27 +63,21 @@ G&T honors XDG overrides when present:
 
 - Config: `$XDG_CONFIG_HOME/gandt/config.toml`
 - Data: `$XDG_DATA_HOME/gandt/`
+- Cache: `$XDG_DATA_HOME/gandt/cache.db`
 - Attachments: `$XDG_DATA_HOME/gandt/attachments/`
 - Logs: `$XDG_DATA_HOME/gandt/logs/gandt.log`
 
-Without XDG overrides, Unix-like systems use:
-
-- Config: `~/.config/gandt/config.toml`
-- Data: `~/.local/share/gandt/`
-
-On Windows, G&T uses `%APPDATA%\gandt` for config and `%LOCALAPPDATA%\gandt` for data when XDG overrides are not set.
+Without XDG overrides, Unix-like systems use `~/.config/gandt/` and `~/.local/share/gandt/`. On Windows, G&T uses `%APPDATA%\gandt` for config and `%LOCALAPPDATA%\gandt` for data.
 
 ## Configuration
 
 If `config.toml` is missing, G&T uses PRD defaults. Supported top-level sections are `ui`, `sync`, `cache`, `accounts`, `keys`, and `paths`.
 
-Example:
-
 ```toml
 [ui]
-theme = "dark"
-compose_editor = "external"
-render_mode_default = "plaintext"
+theme = "dark"                    # dark | light | auto
+compose_editor = "external"       # external | inline
+render_mode_default = "plaintext" # plaintext | html2text | raw_html | glamour
 render_url_footnotes = true
 recent_search_limit = 20
 
@@ -81,9 +87,9 @@ poll_idle_seconds = 300
 backfill_limit_per_label = 5000
 
 [cache.defaults]
-depth = "full"
+depth = "full"                    # none | metadata | body | full
 retention_days = 90
-attachment_rule = "under_size"
+attachment_rule = "under_size"    # none | under_size | all
 attachment_max_mb = 10
 total_budget_mb = 2000
 
@@ -96,48 +102,99 @@ attachment_rule = "none"
 
 [[cache.exclusions]]
 account = "me@example.com"
-match_type = "domain"
+match_type = "domain"             # sender | domain | label
 match_value = "private.example"
+
+[accounts.work]
+email = "me@example.com"
+color = "#4287f5"
+
+[keys]
+archive = "e"
+trash = "#"
 
 [paths]
 downloads = "~/Downloads"
 ```
 
-Cache policy precedence is explicit DB row, config policy, account default, then
-global default. Editing a label in `:cache-policy` writes an explicit DB row;
-resetting it returns to the next configured source.
+Cache policy precedence is explicit DB row, config policy, account default, then global default. Editing a label in `:cache-policy` writes an explicit DB row; resetting it returns to the next configured source.
 
-## Cache Controls
+## Keybindings
 
-The SQLite cache is `$XDG_DATA_HOME/gandt/cache.db`. Cached attachment files live
-under `$XDG_DATA_HOME/gandt/attachments/` when downloaded by G&T. The cache is a
-plain SQLite database in WAL mode and is intentionally readable by stock SQLite
-tools.
+Press `?` for the active help overlay. `[keys]` overrides are validated at config load and the help overlay reflects the active keymap.
+
+Common defaults:
+
+- `j/k`, arrows: move
+- `g/G`: top/bottom
+- `Enter`: open thread
+- `Tab`: switch pane in narrow layouts
+- `/`: search
+- `Ctrl+/`: toggle online/offline search while searching
+- `Ctrl+R`: recent searches in search mode; refresh in normal mode
+- `c`, `r`, `R`, `f`: compose, reply, reply-all, forward
+- `e`, `#`, `!`, `s`, `u`, `m`: archive, trash, spam, star, unread, mute
+- `+/-`: add/remove label
+- `U`: undo last triage action
+- `Ctrl+A`, `1`..`9`: account switcher and direct account jump
+- `V`: cycle plaintext, html2text, raw HTML, and Glamour render modes
+- `B`: open the selected message in Gmail web UI
+- `z`: show or collapse quoted text
+- `:`: command mode
+- `q`: quit
+
+## Compose
+
+Use `c` for a new message, `r` for reply, `R` for reply-all, and `f` for forward. Compose can use an external `$EDITOR` or inline mode via `ui.compose_editor`. Draft save, send, outbox retry, aliases from Gmail send-as settings, and attachments are implemented for v1.
+
+## Search
+
+`/` starts search. Online mode passes Gmail query syntax to Gmail. Offline mode searches cached messages through SQLite FTS5 and supports the implemented local fields such as `from:`, `to:`, and `subject:`. Recent searches are stored locally per account.
+
+## Cache Controls And Privacy
+
+The SQLite cache is intentionally readable with stock SQLite tooling and is documented in `docs/schema.md`. Message bodies and downloaded attachments are unencrypted local files. Users who need at-rest protection should use OS or disk encryption such as FileVault, LUKS, or BitLocker.
 
 Commands:
 
-- `:cache` opens the dashboard with size, row, age, attachment, FTS, account, and
-  label summaries.
-- `:cache-policy` opens the policy table editor. Use `j/k` to move, `d` to cycle
-  depth, `t` for retention, `a` for attachment rule, `s` to save, and `x` to
-  reset to default.
-- `:cache-exclude <sender|domain|label> <value>` previews matching cached rows,
-  then requires `y` to confirm or `n` to cancel.
-- `:cache-purge --account <email> --label <id> --older-than <days|Nd> --from
-  <sender> --dry-run` previews matching rows. Without `--dry-run`, confirm with
-  `y` before deletion.
-- `:cache-compact` runs SQLite `VACUUM`.
-- `:cache-wipe` removes the SQLite cache and cached attachments after two `y`
-  confirmations.
+- `:cache`
+- `:cache-policy`
+- `:cache-exclude <sender|domain|label> <value>`
+- `:cache-purge --account <email> --label <id> --older-than <days|Nd> --from <sender> --dry-run`
+- `:cache-compact`
+- `:cache-wipe`
 
-Privacy controls are policy and exclusion based. Excluded senders, domains, and
-labels are never persisted as bodies; already cached matching rows can be purged
-after confirmation, including referenced local attachment files. Retention sweep
-removes messages only when they are outside the retention window for every label
-on the message.
+Purge and wipe commands require confirmation and do not remove OAuth tokens. Account removal is the explicit path that can revoke and remove account tokens.
 
-At-rest encryption is not a v1 goal. Message bodies in SQLite and downloaded
-attachments are unencrypted local files. Users who need at-rest protection should
-use OS or disk encryption such as FileVault, LUKS, or BitLocker. OAuth client
-credentials and tokens are stored in the OS keychain, not in `cache.db`, and
-cache purge/wipe commands do not remove them.
+## Multi-Account
+
+Each account has independent cache policies, colors, labels, sync state, and Gmail operations. Use `Ctrl+A` for the account switcher or `1` through `9` to jump to an account. Triage, search, compose, drafts, and cache views route through the active account.
+
+## Troubleshooting
+
+- OAuth revoked: run `:add-account` for the account again.
+- Keychain inaccessible: unlock or repair the OS keychain or Secret Service provider, then retry.
+- Offline/rate limited: cached mail remains browsable; retry sync/search later.
+- Cache corruption: quit G&T and inspect or remove `cache.db`; use `:cache-wipe` when the UI is still recoverable.
+- Logs: `$XDG_DATA_HOME/gandt/logs/gandt.log`.
+
+## Known V1 Limitations
+
+- HTML rendering is best effort; newsletters and complex layouts may need `B` to open Gmail web UI.
+- Online search and cache-miss thread-open latency require real Gmail QA before tagging v1.
+- Inline terminal image rendering is not implemented.
+- The cache is not encrypted by G&T.
+- Windows support is best-effort.
+
+Explicitly out of scope for v1: filter rules management, vacation responder, signatures editor UI, PGP/S/MIME, calendar/contacts, non-Gmail accounts, daemon mode, SSH hosting, mobile UI, web UI, telemetry/analytics, a formal plugin system, scripting/RPC API, and in-process extension points.
+
+## Local Development
+
+```sh
+go mod download
+make fmt
+make test
+make vet
+make build
+make run
+```

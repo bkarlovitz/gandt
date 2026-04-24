@@ -43,7 +43,7 @@ Grounded in `prd.md` sections 5, 12, 13.10, 14, 15, 16, 17, 18, 19, 20, 21 M6, 2
   - Verify artifacts for Linux, macOS, and Windows best-effort builds.
   - Validation: `goreleaser release --snapshot --clean` succeeds locally or in CI.
 
-- [ ] **Task 9.7**: Finish user documentation
+- [x] **Task 9.7**: Finish user documentation
   - Expand README with installation, first-run OAuth setup, config, cache privacy, keybindings, compose, search, multi-account, and troubleshooting.
   - Document known v1 limitations and out-of-scope items from the PRD.
   - Keep naming conventions clear: display `G&T`, binary/config paths `gandt`.
