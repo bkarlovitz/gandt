@@ -88,3 +88,15 @@ Grounded in `prd.md` sections 9, 10, 13.6, 17, 18, 20, and milestone M2.
 - 5,000-message cached inbox render: `BenchmarkMailboxRender5000-12` = 5,461,987 ns/op (about 5.46 ms), below the 100 ms target.
 - Optimistic action perceived latency: `BenchmarkTriageOptimisticAction5000-12` = 1,893,006 ns/op (about 1.89 ms), below the 50 ms target.
 - Background sync nonblocking navigation: `TestNavigationDoesNotBlockOnBackgroundSyncDelay` passes with a blocking fake sync command while `j` navigation remains below the 50 ms guard.
+
+### Task 4.12: Real Gmail M2 acceptance
+- Date: 2026-04-24T00:08:48-04:00
+- Status: blocked; Task 4.12 is not marked complete.
+- Blocker: the workspace does not contain a real Gmail test account or Google Desktop OAuth client credentials, and completing the acceptance path requires human browser authorization.
+- Automated validation completed for Sprint 4 implementation tasks: `make test`, `make vet`, targeted sync/UI/Gmail/cache tests, and the Sprint 4 performance benchmarks.
+- Prepared manual acceptance flow once a test account is authorized:
+  1. Launch `gandt`, authorize the test account, and backfill Inbox.
+  2. Archive, trash, star, unread, add label, remove label, mute, and undo a single selected message/thread.
+  3. Confirm the Gmail web UI reflects each action.
+  4. Make an external Gmail web UI change and confirm delta sync picks it up.
+  5. Record whether triaging a real inbox down to zero feels instantaneous and note any operation over target.
