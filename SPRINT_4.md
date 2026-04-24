@@ -61,7 +61,7 @@ Grounded in `prd.md` sections 9, 10, 13.6, 17, 18, 20, and milestone M2.
   - Keep non-fatal errors as toasts and fatal cache/keychain errors as clear error screens.
   - Validation: `go test ./internal/gmail ./internal/sync ./internal/ui` covers backoff, retry exhaustion, auth prompt, and fatal error rendering.
 
-- [ ] **Task 4.10**: Add action and sync logging
+- [x] **Task 4.10**: Add action and sync logging
   - Log sync cycles, action attempts, retries, failures, and durations without message bodies or secrets.
   - Include account ID or email only where useful for local debugging.
   - Ensure log writes do not block the UI.

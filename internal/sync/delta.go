@@ -20,6 +20,7 @@ type DeltaSynchronizer struct {
 	msgLabels cache.MessageLabelRepository
 	backfill  Backfiller
 	gmail     gmail.MessageReader
+	logger    Logger
 }
 
 type DeltaSyncResult struct {
@@ -39,27 +40,38 @@ type AccountSyncResult struct {
 	Status   string
 }
 
-func NewDeltaSynchronizer(db *sqlx.DB, cfg config.Config, client gmail.MessageReader) DeltaSynchronizer {
-	return DeltaSynchronizer{
+func NewDeltaSynchronizer(db *sqlx.DB, cfg config.Config, client gmail.MessageReader, opts ...DeltaOption) DeltaSynchronizer {
+	synchronizer := DeltaSynchronizer{
 		accounts:  cache.NewAccountRepository(db),
 		messages:  cache.NewMessageRepository(db),
 		msgLabels: cache.NewMessageLabelRepository(db),
 		backfill:  NewBackfiller(db, cfg, client),
 		gmail:     client,
+		logger:    noopLogger{},
 	}
+	for _, opt := range opts {
+		opt(&synchronizer)
+	}
+	return synchronizer
 }
 
 func (s DeltaSynchronizer) Sync(ctx context.Context, account cache.Account) (AccountSyncResult, error) {
+	started := time.Now()
+	s.log("sync_start", account, map[string]any{"mode": "delta"})
 	delta, err := s.DeltaSync(ctx, account)
 	if err == nil {
+		s.log("sync_success", account, map[string]any{"mode": "delta", "duration_ms": durationMillis(started)})
 		return AccountSyncResult{Delta: delta, Status: "sync complete"}, nil
 	}
 	if !isExpiredHistoryError(err) {
+		s.log("sync_failure", account, map[string]any{"mode": "delta", "duration_ms": durationMillis(started), "error": err.Error()})
 		return AccountSyncResult{}, err
 	}
+	s.log("sync_history_expired", account, map[string]any{"status": "fallback"})
 
 	backfill, err := s.backfill.Backfill(ctx, account)
 	if err != nil {
+		s.log("sync_failure", account, map[string]any{"mode": "fallback", "duration_ms": durationMillis(started), "error": err.Error()})
 		return AccountSyncResult{}, err
 	}
 	bodyQueue, err := s.missingBodyQueue(ctx, account.ID, backfill.BodyQueue)
@@ -68,13 +80,21 @@ func (s DeltaSynchronizer) Sync(ctx context.Context, account cache.Account) (Acc
 	}
 	bodies, err := s.backfill.FetchBodies(ctx, account, bodyQueue)
 	if err != nil {
+		s.log("sync_failure", account, map[string]any{"mode": "fallback", "duration_ms": durationMillis(started), "error": err.Error()})
 		return AccountSyncResult{}, err
 	}
 	if historyID := latestHistoryID(backfill.Messages); historyID != "" {
 		if err := s.accounts.UpdateSyncMetadata(ctx, account.ID, historyID, time.Now().UTC()); err != nil {
+			s.log("sync_failure", account, map[string]any{"mode": "fallback", "duration_ms": durationMillis(started), "error": err.Error()})
 			return AccountSyncResult{}, err
 		}
 	}
+	s.log("sync_success", account, map[string]any{
+		"mode":         "fallback",
+		"duration_ms":  durationMillis(started),
+		"messages":     len(backfill.Messages),
+		"body_fetches": bodies.Fetched,
+	})
 
 	return AccountSyncResult{
 		Backfill: backfill,
@@ -85,7 +105,10 @@ func (s DeltaSynchronizer) Sync(ctx context.Context, account cache.Account) (Acc
 }
 
 func (s DeltaSynchronizer) DeltaSync(ctx context.Context, account cache.Account) (DeltaSyncResult, error) {
+	started := time.Now()
+	s.log("delta_sync_start", account, nil)
 	if account.HistoryID == "" {
+		s.log("delta_sync_failure", account, map[string]any{"duration_ms": durationMillis(started), "error": "account history id is required"})
 		return DeltaSyncResult{}, errors.New("account history id is required for delta sync")
 	}
 
@@ -98,6 +121,7 @@ func (s DeltaSynchronizer) DeltaSync(ctx context.Context, account cache.Account)
 			MaxResults:     historyPageSize,
 		})
 		if err != nil {
+			s.log("delta_sync_failure", account, map[string]any{"duration_ms": durationMillis(started), "error": err.Error()})
 			return DeltaSyncResult{}, err
 		}
 		if page.HistoryID != "" {
@@ -105,6 +129,7 @@ func (s DeltaSynchronizer) DeltaSync(ctx context.Context, account cache.Account)
 		}
 		for _, record := range page.Records {
 			if err := s.applyHistoryRecord(ctx, account, record, &result); err != nil {
+				s.log("delta_sync_failure", account, map[string]any{"duration_ms": durationMillis(started), "error": err.Error()})
 				return DeltaSyncResult{}, err
 			}
 		}
@@ -116,10 +141,33 @@ func (s DeltaSynchronizer) DeltaSync(ctx context.Context, account cache.Account)
 
 	if result.HistoryID != "" {
 		if err := s.accounts.UpdateSyncMetadata(ctx, account.ID, result.HistoryID, time.Now().UTC()); err != nil {
+			s.log("delta_sync_failure", account, map[string]any{"duration_ms": durationMillis(started), "error": err.Error()})
 			return DeltaSyncResult{}, err
 		}
 	}
+	s.log("delta_sync_success", account, map[string]any{
+		"duration_ms":      durationMillis(started),
+		"messages_added":   result.MessagesAdded,
+		"messages_deleted": result.MessagesDeleted,
+		"labels_added":     result.LabelsAdded,
+		"labels_removed":   result.LabelsRemoved,
+	})
 	return result, nil
+}
+
+func (s DeltaSynchronizer) log(event string, account cache.Account, fields map[string]any) {
+	if fields == nil {
+		fields = map[string]any{}
+	}
+	fields["account_id"] = account.ID
+	if account.Email != "" {
+		fields["email"] = account.Email
+	}
+	s.logger.LogSyncEvent(event, fields)
+}
+
+func durationMillis(start time.Time) int64 {
+	return time.Since(start).Milliseconds()
 }
 
 func (s DeltaSynchronizer) applyHistoryRecord(ctx context.Context, account cache.Account, record gmail.HistoryRecord, result *DeltaSyncResult) error {

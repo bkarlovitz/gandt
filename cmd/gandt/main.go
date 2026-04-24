@@ -18,6 +18,7 @@ import (
 	gandtsync "github.com/bkarlovitz/gandt/internal/sync"
 	"github.com/bkarlovitz/gandt/internal/ui"
 	tea "github.com/charmbracelet/bubbletea"
+	charmlog "github.com/charmbracelet/log"
 	"github.com/jmoiron/sqlx"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
@@ -176,7 +177,7 @@ func buildSyncCoordinator(paths config.Paths, cfg config.Config) ui.SyncCoordina
 		if err != nil {
 			return gandtsync.AccountSyncResult{}, err
 		}
-		return gandtsync.NewDeltaSynchronizer(db, cfg, gmailClient).Sync(ctx, account)
+		return gandtsync.NewDeltaSynchronizer(db, cfg, gmailClient, gandtsync.WithLogger(charmSyncLogger{})).Sync(ctx, account)
 	}))
 }
 
@@ -233,7 +234,7 @@ func runOneAccountRefresh(ctx context.Context, paths config.Paths, cfg config.Co
 			Status:   fmt.Sprintf("refreshed %s", firstNonEmptyString(request.LabelName, request.LabelID, "label")),
 		}, nil
 	}
-	return gandtsync.NewDeltaSynchronizer(db, cfg, gmailClient).Sync(ctx, account)
+	return gandtsync.NewDeltaSynchronizer(db, cfg, gmailClient, gandtsync.WithLogger(charmSyncLogger{})).Sync(ctx, account)
 }
 
 func buildTriageActor(paths config.Paths) ui.TriageActor {
@@ -262,14 +263,24 @@ func buildTriageActor(paths config.Paths) ui.TriageActor {
 				break
 			}
 		}
+		actionStarted := time.Now()
+		charmlog.Info("action_attempt",
+			"account_id", account.ID,
+			"email", account.Email,
+			"kind", request.Kind,
+			"message_id", request.MessageID,
+			"thread_id", request.ThreadID,
+		)
 
 		gmailClient, err := gmailClientForAccount(ctx, account.ID)
 		if err != nil {
+			charmlog.Error("action_failure", "account_id", account.ID, "kind", request.Kind, "duration_ms", time.Since(actionStarted).Milliseconds(), "error", err)
 			return ui.TriageActionResult{}, err
 		}
 		if request.CreateLabel {
 			label, err := gmailClient.CreateLabel(ctx, gandtgmail.LabelCreateRequest{Name: request.LabelName})
 			if err != nil {
+				charmlog.Error("action_failure", "account_id", account.ID, "kind", request.Kind, "duration_ms", time.Since(actionStarted).Milliseconds(), "error", err)
 				return ui.TriageActionResult{}, err
 			}
 			request.LabelID = label.ID
@@ -283,6 +294,7 @@ func buildTriageActor(paths config.Paths) ui.TriageActor {
 				ColorBG:   label.ColorBG,
 				ColorFG:   label.ColorFG,
 			}); err != nil {
+				charmlog.Error("action_failure", "account_id", account.ID, "kind", request.Kind, "duration_ms", time.Since(actionStarted).Milliseconds(), "error", err)
 				return ui.TriageActionResult{}, err
 			}
 		}
@@ -290,14 +302,27 @@ func buildTriageActor(paths config.Paths) ui.TriageActor {
 		repo := cache.NewOptimisticActionRepository(db)
 		snapshot, err := repo.Apply(ctx, cacheActionForRequest(account.ID, request))
 		if err != nil {
+			charmlog.Error("action_failure", "account_id", account.ID, "kind", request.Kind, "duration_ms", time.Since(actionStarted).Milliseconds(), "error", err)
 			return ui.TriageActionResult{}, err
 		}
 		if err := dispatchGmailAction(ctx, gmailClient, request); err != nil {
 			_ = repo.Revert(ctx, snapshot)
+			charmlog.Error("action_failure", "account_id", account.ID, "kind", request.Kind, "duration_ms", time.Since(actionStarted).Milliseconds(), "error", err)
 			return ui.TriageActionResult{}, err
 		}
+		charmlog.Info("action_success", "account_id", account.ID, "kind", request.Kind, "duration_ms", time.Since(actionStarted).Milliseconds())
 		return ui.TriageActionResult{Summary: triageActionSummary(request)}, nil
 	})
+}
+
+type charmSyncLogger struct{}
+
+func (charmSyncLogger) LogSyncEvent(event string, fields map[string]any) {
+	args := make([]any, 0, len(fields)*2)
+	for key, value := range fields {
+		args = append(args, key, value)
+	}
+	charmlog.Info(event, args...)
 }
 
 func cacheActionForRequest(accountID string, request ui.TriageActionRequest) cache.OptimisticAction {
