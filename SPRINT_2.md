@@ -55,7 +55,7 @@ Grounded in `prd.md` sections 7, 8, 9, 10, 11, 16, 19, 20, and milestone M1.
   - Use `gmail.modify`, `gmail.send`, and `userinfo.email` scopes.
   - Validation: `go test ./internal/auth/...` uses `httptest` to verify state checking, callback handling, success, timeout, and cancellation.
 
-- [ ] **Task 2.9**: Fetch Gmail profile and labels after auth
+- [x] **Task 2.9**: Fetch Gmail profile and labels after auth
   - Add a minimal Gmail service wrapper for `users.getProfile` and `users.labels.list`.
   - Store the account email, current history ID, and labels in SQLite.
   - Assign a deterministic account color when the user has not configured one.
