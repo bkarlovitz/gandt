@@ -79,6 +79,7 @@ type Model struct {
 	manualRefresher       ManualRefresher
 	refreshingAccount     string
 	searchRunner          SearchRunner
+	recentSearchStore     RecentSearchStore
 	searchGeneration      int
 	searchCancel          context.CancelFunc
 	toastMessage          string
@@ -118,6 +119,10 @@ type SearchState struct {
 	Results         []Message
 	Error           string
 	Submitted       bool
+	ShowRecents     bool
+	LoadingRecents  bool
+	Recents         []RecentSearch
+	SelectedRecent  int
 	PreviousMailbox searchMailboxContext
 }
 
@@ -211,6 +216,14 @@ func WithSearchRunner(runner SearchRunner) Option {
 	return func(m *Model) {
 		if runner != nil {
 			m.searchRunner = runner
+		}
+	}
+}
+
+func WithRecentSearchStore(store RecentSearchStore) Option {
+	return func(m *Model) {
+		if store != nil {
+			m.recentSearchStore = store
 		}
 	}
 }
@@ -406,6 +419,30 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.selectedMessage = 0
 		m.selectedThreadMessage = 0
 		m.statusMessage = fmt.Sprintf("search complete: %d results", len(m.search.Results))
+	case recentSearchesDoneMsg:
+		m.search.LoadingRecents = false
+		if msg.Err != nil {
+			m.search.Error = msg.Err.Error()
+			m.statusMessage = "recent searches failed: " + msg.Err.Error()
+			return m, nil
+		}
+		m.search.ShowRecents = true
+		m.search.Recents = append([]RecentSearch{}, msg.Items...)
+		m.search.SelectedRecent = clamp(m.search.SelectedRecent, 0, len(m.search.Recents)-1)
+		m.statusMessage = fmt.Sprintf("recent searches: %d", len(m.search.Recents))
+	case recentSearchDeleteDoneMsg:
+		if msg.Err != nil {
+			m.statusMessage = "delete recent search failed: " + msg.Err.Error()
+			return m, nil
+		}
+		for i, recent := range m.search.Recents {
+			if recent.Query == msg.Query && recent.Mode == msg.Mode {
+				m.search.Recents = append(m.search.Recents[:i], m.search.Recents[i+1:]...)
+				break
+			}
+		}
+		m.search.SelectedRecent = clamp(m.search.SelectedRecent, 0, len(m.search.Recents)-1)
+		m.statusMessage = "recent search deleted"
 	case triageDoneMsg:
 		snapshot, ok := m.pendingActions[msg.ID]
 		delete(m.pendingActions, msg.ID)
@@ -787,6 +824,7 @@ func (m *Model) enterSearchMode() {
 		Query:         m.search.Query,
 		Mode:          searchMode,
 		ActiveAccount: m.mailbox.Account,
+		ShowRecents:   false,
 		PreviousMailbox: searchMailboxContext{
 			SelectedLabel:         m.selectedLabel,
 			SelectedMessage:       m.selectedMessage,
@@ -799,6 +837,9 @@ func (m *Model) enterSearchMode() {
 }
 
 func (m Model) handleSearchKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.search.ShowRecents {
+		return m.handleRecentSearchKey(msg)
+	}
 	if len(m.search.Results) > 0 {
 		switch msg.String() {
 		case "j", "down":
@@ -857,11 +898,42 @@ func (m Model) handleSearchKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.search.Error = ""
 	case "ctrl+/", "ctrl+_", "ctrl+?":
 		return m, m.toggleSearchMode()
+	case "ctrl+r":
+		return m, m.loadRecentSearches()
 	default:
 		for _, r := range msg.Runes {
 			m.search.Query += string(r)
 			m.search.Error = ""
 		}
+	}
+	return m, nil
+}
+
+func (m Model) handleRecentSearchKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc", "ctrl+r":
+		m.search.ShowRecents = false
+	case "j", "down":
+		m.search.SelectedRecent = clamp(m.search.SelectedRecent+1, 0, len(m.search.Recents)-1)
+	case "k", "up":
+		m.search.SelectedRecent = clamp(m.search.SelectedRecent-1, 0, len(m.search.Recents)-1)
+	case "enter":
+		if len(m.search.Recents) == 0 {
+			m.statusMessage = "no recent search selected"
+			return m, nil
+		}
+		recent := m.search.Recents[clamp(m.search.SelectedRecent, 0, len(m.search.Recents)-1)]
+		m.search.ShowRecents = false
+		m.search.Query = recent.Query
+		m.search.Mode = recent.Mode
+		return m, m.submitSearch()
+	case "x", "delete", "backspace":
+		if len(m.search.Recents) == 0 {
+			m.statusMessage = "no recent search selected"
+			return m, nil
+		}
+		recent := m.search.Recents[clamp(m.search.SelectedRecent, 0, len(m.search.Recents)-1)]
+		return m, m.deleteRecentSearch(recent)
 	}
 	return m, nil
 }
@@ -922,6 +994,35 @@ func (m *Model) startSearch(request SearchRequest) tea.Cmd {
 	return func() tea.Msg {
 		result, err := m.searchRunner.Search(ctx, request)
 		return searchDoneMsg{Generation: generation, Request: request, Result: result, Err: err}
+	}
+}
+
+func (m *Model) loadRecentSearches() tea.Cmd {
+	if m.recentSearchStore == nil {
+		m.statusMessage = "recent searches unavailable"
+		return nil
+	}
+	account := m.mailbox.Account
+	m.search.LoadingRecents = true
+	m.search.ShowRecents = true
+	m.statusMessage = "loading recent searches..."
+	limit := m.config.UI.RecentSearchLimit
+	return func() tea.Msg {
+		items, err := m.recentSearchStore.ListRecentSearches(account, limit)
+		return recentSearchesDoneMsg{Account: account, Items: items, Err: err}
+	}
+}
+
+func (m *Model) deleteRecentSearch(recent RecentSearch) tea.Cmd {
+	if m.recentSearchStore == nil {
+		m.statusMessage = "recent searches unavailable"
+		return nil
+	}
+	account := m.mailbox.Account
+	m.statusMessage = "deleting recent search..."
+	return func() tea.Msg {
+		err := m.recentSearchStore.DeleteRecentSearch(account, recent.Query, recent.Mode)
+		return recentSearchDeleteDoneMsg{Account: account, Query: recent.Query, Mode: recent.Mode, Err: err}
 	}
 }
 

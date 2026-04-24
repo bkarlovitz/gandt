@@ -290,6 +290,75 @@ func TestSearchOfflineDefaultSubmitsOfflineRequest(t *testing.T) {
 	}
 }
 
+func TestSearchRecentSelectionRerunsSavedQuery(t *testing.T) {
+	runner := &fakeSearchRunner{}
+	recents := &fakeRecentSearchStore{
+		items: []RecentSearch{
+			{Account: "work: me@work.com", Query: "from:ada", Mode: SearchModeOffline, LastUsed: "2026-04-24 12:00"},
+			{Account: "work: me@work.com", Query: "subject:plan", Mode: SearchModeOnline, LastUsed: "2026-04-24 11:00"},
+		},
+	}
+	model := New(config.Default(), WithSearchRunner(runner), WithRecentSearchStore(recents))
+	updated, _ := model.Update(keyMsg("/"))
+	model = updated.(Model)
+
+	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyCtrlR})
+	model = updated.(Model)
+	if cmd == nil || !model.search.ShowRecents || !model.search.LoadingRecents {
+		t.Fatalf("recents open = show %v loading %v cmd %T", model.search.ShowRecents, model.search.LoadingRecents, cmd)
+	}
+	updated, _ = model.Update(cmd())
+	model = updated.(Model)
+	if len(model.search.Recents) != 2 || model.statusMessage != "recent searches: 2" {
+		t.Fatalf("recents = %#v status %q", model.search.Recents, model.statusMessage)
+	}
+
+	updated, cmd = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(Model)
+	if cmd == nil || model.search.ShowRecents || model.search.Query != "from:ada" || model.search.Mode != SearchModeOffline {
+		t.Fatalf("selected recent = show %v query %q mode %s cmd %T", model.search.ShowRecents, model.search.Query, model.search.Mode, cmd)
+	}
+	_ = cmd()
+	if len(runner.requests) != 1 || runner.requests[0].Query != "from:ada" || runner.requests[0].Mode != SearchModeOffline {
+		t.Fatalf("requests = %#v, want offline recent rerun", runner.requests)
+	}
+}
+
+func TestSearchRecentDeleteRemovesSavedQuery(t *testing.T) {
+	recents := &fakeRecentSearchStore{
+		items: []RecentSearch{
+			{Account: "work: me@work.com", Query: "from:ada", Mode: SearchModeOffline},
+			{Account: "work: me@work.com", Query: "subject:plan", Mode: SearchModeOnline},
+		},
+	}
+	model := New(config.Default(), WithRecentSearchStore(recents))
+	updated, _ := model.Update(keyMsg("/"))
+	model = updated.(Model)
+	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyCtrlR})
+	model = updated.(Model)
+	updated, _ = model.Update(cmd())
+	model = updated.(Model)
+
+	updated, cmd = model.Update(keyMsg("j"))
+	model = updated.(Model)
+	if model.search.SelectedRecent != 1 {
+		t.Fatalf("selected recent = %d, want 1", model.search.SelectedRecent)
+	}
+	updated, cmd = model.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+	model = updated.(Model)
+	if cmd == nil {
+		t.Fatal("expected delete command")
+	}
+	updated, _ = model.Update(cmd())
+	model = updated.(Model)
+	if len(model.search.Recents) != 1 || model.search.Recents[0].Query != "from:ada" {
+		t.Fatalf("recents after delete = %#v, want only first", model.search.Recents)
+	}
+	if len(recents.deleted) != 1 || recents.deleted[0].query != "subject:plan" || recents.deleted[0].mode != SearchModeOnline {
+		t.Fatalf("deleted = %#v, want subject:plan online", recents.deleted)
+	}
+}
+
 type fakeSearchRunner struct {
 	result   SearchResult
 	requests []SearchRequest
@@ -310,10 +379,37 @@ func (f *fakeSearchRunner) Search(ctx context.Context, request SearchRequest) (S
 	return result, nil
 }
 
+type fakeRecentSearchStore struct {
+	items   []RecentSearch
+	deleted []struct {
+		account string
+		query   string
+		mode    SearchMode
+	}
+}
+
+func (f *fakeRecentSearchStore) ListRecentSearches(account string, limit int) ([]RecentSearch, error) {
+	if limit > 0 && limit < len(f.items) {
+		return append([]RecentSearch{}, f.items[:limit]...), nil
+	}
+	return append([]RecentSearch{}, f.items...), nil
+}
+
+func (f *fakeRecentSearchStore) DeleteRecentSearch(account string, query string, mode SearchMode) error {
+	f.deleted = append(f.deleted, struct {
+		account string
+		query   string
+		mode    SearchMode
+	}{account: account, query: query, mode: mode})
+	return nil
+}
+
 func keyMsg(value string) tea.KeyMsg {
 	switch value {
 	case "ctrl+c":
 		return tea.KeyMsg{Type: tea.KeyCtrlC}
+	case "ctrl+r":
+		return tea.KeyMsg{Type: tea.KeyCtrlR}
 	case "ctrl+/":
 		return tea.KeyMsg{Type: tea.KeyCtrlUnderscore}
 	case "esc":

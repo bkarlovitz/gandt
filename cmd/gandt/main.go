@@ -64,6 +64,7 @@ func main() {
 		ui.WithThreadLoader(buildThreadLoader(paths, cfg)),
 		ui.WithManualRefresher(buildManualRefresher(paths, cfg)),
 		ui.WithSearchRunner(buildSearchRunner(paths, cfg)),
+		ui.WithRecentSearchStore(buildRecentSearchStore(paths, cfg)),
 		ui.WithTriageActor(buildTriageActor(paths)),
 		ui.WithCacheDashboardLoader(buildCacheDashboardLoader(paths, cfg)),
 		ui.WithCachePolicyStore(buildCachePolicyStore(paths, cfg)),
@@ -304,6 +305,67 @@ func buildSearchRunner(paths config.Paths, cfg config.Config) ui.SearchRunner {
 			Messages: messages,
 		}, nil
 	})
+}
+
+func buildRecentSearchStore(paths config.Paths, cfg config.Config) ui.RecentSearchStore {
+	return ui.RecentSearchStoreFunc{
+		ListFn: func(accountRef string, limit int) ([]ui.RecentSearch, error) {
+			ctx := context.Background()
+			db, err := cache.Open(ctx, paths)
+			if err != nil {
+				return nil, err
+			}
+			defer db.Close()
+			if err := cache.Migrate(ctx, db); err != nil {
+				return nil, err
+			}
+			accounts, err := cache.NewAccountRepository(db).List(ctx)
+			if err != nil {
+				return nil, err
+			}
+			account, err := resolveRefreshAccount(accounts, accountRef)
+			if err != nil {
+				return nil, err
+			}
+			if limit <= 0 {
+				limit = cfg.UI.RecentSearchLimit
+			}
+			recents, err := cache.NewRecentSearchRepository(db).List(ctx, account.ID, limit)
+			if err != nil {
+				return nil, err
+			}
+			out := make([]ui.RecentSearch, 0, len(recents))
+			for _, recent := range recents {
+				out = append(out, ui.RecentSearch{
+					Account:  account.Email,
+					Query:    recent.Query,
+					Mode:     ui.SearchMode(recent.Mode),
+					LastUsed: recent.LastUsed.Local().Format("2006-01-02 15:04"),
+				})
+			}
+			return out, nil
+		},
+		DeleteFn: func(accountRef string, query string, mode ui.SearchMode) error {
+			ctx := context.Background()
+			db, err := cache.Open(ctx, paths)
+			if err != nil {
+				return err
+			}
+			defer db.Close()
+			if err := cache.Migrate(ctx, db); err != nil {
+				return err
+			}
+			accounts, err := cache.NewAccountRepository(db).List(ctx)
+			if err != nil {
+				return err
+			}
+			account, err := resolveRefreshAccount(accounts, accountRef)
+			if err != nil {
+				return err
+			}
+			return cache.NewRecentSearchRepository(db).Delete(ctx, account.ID, query, string(mode))
+		},
+	}
 }
 
 func buildCacheDashboardLoader(paths config.Paths, cfg config.Config) ui.CacheDashboardLoader {

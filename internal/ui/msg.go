@@ -45,6 +45,19 @@ type searchDoneMsg struct {
 	Err        error
 }
 
+type recentSearchesDoneMsg struct {
+	Account string
+	Items   []RecentSearch
+	Err     error
+}
+
+type recentSearchDeleteDoneMsg struct {
+	Account string
+	Query   string
+	Mode    SearchMode
+	Err     error
+}
+
 type triageDoneMsg struct {
 	ID      int
 	Request TriageActionRequest

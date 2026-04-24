@@ -387,6 +387,32 @@ func (m Model) renderSearchMessageList(width, maxRows int) []string {
 		query = "<empty>"
 	}
 	lines := []string{fmt.Sprintf("search: %s [%s]", query, m.search.Mode)}
+	if m.search.ShowRecents {
+		lines[0] = "recent searches"
+		if m.search.LoadingRecents {
+			lines = append(lines, "", fit("Loading recent searches...", width))
+			return limitLines(lines, maxRows, width)
+		}
+		if len(m.search.Recents) == 0 {
+			lines = append(lines, "", fit("No recent searches", width))
+			return limitLines(lines, maxRows, width)
+		}
+		for i, recent := range m.search.Recents {
+			prefix := "  "
+			if i == m.search.SelectedRecent {
+				prefix = "> "
+			}
+			lines = append(lines, m.renderSelectableLine(
+				fmt.Sprintf("%s%-8s %s", prefix, recent.Mode, recent.Query),
+				width,
+				i == m.search.SelectedRecent,
+			))
+			if recent.LastUsed != "" {
+				lines = append(lines, fit("  "+recent.LastUsed, width))
+			}
+		}
+		return limitLines(lines, maxRows, width)
+	}
 	switch {
 	case m.search.Loading:
 		lines = append(lines, "", fit("Searching...", width))

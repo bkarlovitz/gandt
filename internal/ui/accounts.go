@@ -134,6 +134,31 @@ func (fn SearchRunnerFunc) Search(ctx context.Context, request SearchRequest) (S
 	return fn(ctx, request)
 }
 
+type RecentSearch struct {
+	Account  string
+	Query    string
+	Mode     SearchMode
+	LastUsed string
+}
+
+type RecentSearchStore interface {
+	ListRecentSearches(account string, limit int) ([]RecentSearch, error)
+	DeleteRecentSearch(account string, query string, mode SearchMode) error
+}
+
+type RecentSearchStoreFunc struct {
+	ListFn   func(account string, limit int) ([]RecentSearch, error)
+	DeleteFn func(account string, query string, mode SearchMode) error
+}
+
+func (fn RecentSearchStoreFunc) ListRecentSearches(account string, limit int) ([]RecentSearch, error) {
+	return fn.ListFn(account, limit)
+}
+
+func (fn RecentSearchStoreFunc) DeleteRecentSearch(account string, query string, mode SearchMode) error {
+	return fn.DeleteFn(account, query, mode)
+}
+
 type TriageActionKind string
 
 const (

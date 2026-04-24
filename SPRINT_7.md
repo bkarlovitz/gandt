@@ -50,7 +50,7 @@ Grounded in `prd.md` sections 7, 9, 13.4, 15, 18, 20, and milestone M4.
   - Avoid storing message bodies or result snapshots in recents.
   - Validation: `go test ./internal/cache ./internal/config` covers migration, insert, dedupe, ordering, limit, and per-account scoping.
 
-- [ ] **Task 7.8**: Build recent search UI
+- [x] **Task 7.8**: Build recent search UI
   - Open recents with `Ctrl+R` from Search mode.
   - Allow selecting, deleting, and re-running a recent query.
   - Preserve mode and active account semantics.
