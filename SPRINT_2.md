@@ -19,7 +19,7 @@ Grounded in `prd.md` sections 7, 8, 9, 10, 11, 16, 19, 20, and milestone M1.
   - Add migration code that applies schema v1 exactly once.
   - Validation: `go test ./internal/cache/...` migrates an empty database and validates every expected table, trigger, and index exists.
 
-- [ ] **Task 2.3**: Document the public cache schema
+- [x] **Task 2.3**: Document the public cache schema
   - Add `docs/schema.md` describing every table, key, index, WAL mode, FTS behavior, and compatibility promise.
   - Explicitly document that message bodies are unencrypted on disk and OAuth tokens are not in SQLite.
   - Add a note that `message_annotations` is reserved for future downstream tools and not populated by v1 core.
