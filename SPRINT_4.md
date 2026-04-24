@@ -31,7 +31,7 @@ Grounded in `prd.md` sections 9, 10, 13.6, 17, 18, 20, and milestone M2.
   - Debounce repeated refresh keys to avoid overlapping syncs for the same account.
   - Validation: `go test ./internal/ui/...` covers refresh key messages, command submission, progress rendering, and overlap prevention.
 
-- [ ] **Task 4.5**: Expand Gmail wrappers for triage actions
+- [x] **Task 4.5**: Expand Gmail wrappers for triage actions
   - Implement message batch modify, trash, untrash, thread modify, and label create/delete wrappers needed by v1 actions.
   - Normalize API errors for rate limit, auth, not found, and permission cases.
   - Keep request construction testable without live Gmail.

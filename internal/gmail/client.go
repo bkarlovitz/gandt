@@ -54,18 +54,25 @@ func (c *Client) Labels(ctx context.Context) ([]Label, error) {
 
 	labels := make([]Label, 0, len(response.Labels))
 	for _, label := range response.Labels {
-		out := Label{
-			ID:     label.Id,
-			Name:   label.Name,
-			Type:   label.Type,
-			Unread: int(label.MessagesUnread),
-			Total:  int(label.MessagesTotal),
-		}
-		if label.Color != nil {
-			out.ColorBG = label.Color.BackgroundColor
-			out.ColorFG = label.Color.TextColor
-		}
-		labels = append(labels, out)
+		labels = append(labels, convertLabel(label))
 	}
 	return labels, nil
+}
+
+func convertLabel(label *gmailapi.Label) Label {
+	if label == nil {
+		return Label{}
+	}
+	out := Label{
+		ID:     label.Id,
+		Name:   label.Name,
+		Type:   label.Type,
+		Unread: int(label.MessagesUnread),
+		Total:  int(label.MessagesTotal),
+	}
+	if label.Color != nil {
+		out.ColorBG = label.Color.BackgroundColor
+		out.ColorFG = label.Color.TextColor
+	}
+	return out
 }
