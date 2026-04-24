@@ -7,7 +7,7 @@ A user can configure Google OAuth client credentials, add one Gmail account thro
 Grounded in `prd.md` sections 7, 8, 9, 10, 11, 16, 19, 20, and milestone M1.
 
 ## Tasks
-- [ ] **Task 2.1**: Implement SQLite database opening and pragmas
+- [x] **Task 2.1**: Implement SQLite database opening and pragmas
   - Add `internal/cache` with a database opener under `$XDG_DATA_HOME/gandt/cache.db`.
   - Enable WAL mode, foreign keys, and connection settings appropriate for a TUI app.
   - Keep all database access behind repository functions.
