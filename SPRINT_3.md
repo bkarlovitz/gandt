@@ -7,7 +7,7 @@ With one authenticated account, `gandt` can backfill policy-selected Gmail metad
 Grounded in `prd.md` sections 7, 9, 10, 12, 13.2, 13.3, 14, 17, 18, 20, and milestone M1.
 
 ## Tasks
-- [ ] **Task 3.1**: Expand Gmail wrappers for message and thread reads
+- [x] **Task 3.1**: Expand Gmail wrappers for message and thread reads
   - Implement `users.messages.list`, `users.messages.get` for `METADATA` and `FULL`, and `users.threads.get`.
   - Normalize Gmail errors into service-layer errors the UI can present.
   - Keep wrappers interface-based for unit tests and later sync workers.

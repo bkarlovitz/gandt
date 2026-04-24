@@ -38,7 +38,7 @@ func NewClient(ctx context.Context, opts ...option.ClientOption) (*Client, error
 func (c *Client) Profile(ctx context.Context) (Profile, error) {
 	profile, err := c.service.Users.GetProfile("me").Context(ctx).Do()
 	if err != nil {
-		return Profile{}, fmt.Errorf("get gmail profile: %w", err)
+		return Profile{}, normalizeError("get gmail profile", err)
 	}
 	return Profile{
 		EmailAddress: profile.EmailAddress,
@@ -49,7 +49,7 @@ func (c *Client) Profile(ctx context.Context) (Profile, error) {
 func (c *Client) Labels(ctx context.Context) ([]Label, error) {
 	response, err := c.service.Users.Labels.List("me").Context(ctx).Do()
 	if err != nil {
-		return nil, fmt.Errorf("list gmail labels: %w", err)
+		return nil, normalizeError("list gmail labels", err)
 	}
 
 	labels := make([]Label, 0, len(response.Labels))
