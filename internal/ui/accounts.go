@@ -4,8 +4,19 @@ import "errors"
 
 type AccountAddResult struct {
 	Account         string
+	DisplayName     string
+	Color           string
 	Labels          []Label
 	MessagesByLabel map[string][]Message
+}
+
+type AccountState struct {
+	Account     string
+	DisplayName string
+	Color       string
+	SyncStatus  string
+	Unread      int
+	Mailbox     Mailbox
 }
 
 type AccountAdder interface {

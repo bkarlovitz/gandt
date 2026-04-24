@@ -10,11 +10,13 @@ import (
 
 func TestRemoveAccountRequiresConfirmationAndClearsActiveAccount(t *testing.T) {
 	var removed string
-	model := New(config.Default(), WithAccountRemover(AccountRemoverFunc(func(account string) (AccountRemoveResult, error) {
-		removed = account
-		return AccountRemoveResult{Account: account}, nil
-	})))
-	model.mailbox = RealAccountMailbox("me@example.com", []Label{{ID: "INBOX", Name: "Inbox", System: true}})
+	model := New(config.Default(),
+		WithMailbox(RealAccountMailbox("me@example.com", []Label{{ID: "INBOX", Name: "Inbox", System: true}})),
+		WithAccountRemover(AccountRemoverFunc(func(account string) (AccountRemoveResult, error) {
+			removed = account
+			return AccountRemoveResult{Account: account}, nil
+		})),
+	)
 
 	updated, cmd := submitTestCommand(model, "remove-account")
 	got := updated.(Model)
@@ -42,11 +44,13 @@ func TestRemoveAccountRequiresConfirmationAndClearsActiveAccount(t *testing.T) {
 
 func TestRemoveAccountCanCancel(t *testing.T) {
 	calls := 0
-	model := New(config.Default(), WithAccountRemover(AccountRemoverFunc(func(account string) (AccountRemoveResult, error) {
-		calls++
-		return AccountRemoveResult{}, nil
-	})))
-	model.mailbox = RealAccountMailbox("me@example.com", nil)
+	model := New(config.Default(),
+		WithMailbox(RealAccountMailbox("me@example.com", nil)),
+		WithAccountRemover(AccountRemoverFunc(func(account string) (AccountRemoveResult, error) {
+			calls++
+			return AccountRemoveResult{}, nil
+		})),
+	)
 
 	updated, _ := submitTestCommand(model, "remove-account")
 	updated, cmd := updated.(Model).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
@@ -60,10 +64,12 @@ func TestRemoveAccountCanCancel(t *testing.T) {
 }
 
 func TestRemoveAccountReportsRevokeFailureAndErrors(t *testing.T) {
-	model := New(config.Default(), WithAccountRemover(AccountRemoverFunc(func(account string) (AccountRemoveResult, error) {
-		return AccountRemoveResult{Account: account, RevokeError: true}, nil
-	})))
-	model.mailbox = RealAccountMailbox("me@example.com", nil)
+	model := New(config.Default(),
+		WithMailbox(RealAccountMailbox("me@example.com", nil)),
+		WithAccountRemover(AccountRemoverFunc(func(account string) (AccountRemoveResult, error) {
+			return AccountRemoveResult{Account: account, RevokeError: true}, nil
+		})),
+	)
 	updated, _ := submitTestCommand(model, "remove-account")
 	updated, cmd := updated.(Model).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
 	updated, _ = updated.(Model).Update(cmd())
@@ -71,10 +77,12 @@ func TestRemoveAccountReportsRevokeFailureAndErrors(t *testing.T) {
 		t.Fatalf("status = %q, want revoke failure noted", got.statusMessage)
 	}
 
-	model = New(config.Default(), WithAccountRemover(AccountRemoverFunc(func(account string) (AccountRemoveResult, error) {
-		return AccountRemoveResult{}, errors.New("keyring failed")
-	})))
-	model.mailbox = RealAccountMailbox("me@example.com", nil)
+	model = New(config.Default(),
+		WithMailbox(RealAccountMailbox("me@example.com", nil)),
+		WithAccountRemover(AccountRemoverFunc(func(account string) (AccountRemoveResult, error) {
+			return AccountRemoveResult{}, errors.New("keyring failed")
+		})),
+	)
 	updated, _ = submitTestCommand(model, "remove-account")
 	updated, cmd = updated.(Model).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
 	updated, _ = updated.(Model).Update(cmd())

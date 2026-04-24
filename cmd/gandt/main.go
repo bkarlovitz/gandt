@@ -71,8 +71,8 @@ func main() {
 		ui.WithCacheWipeStore(buildCacheWipeStore(paths)),
 		ui.WithSyncCoordinator(buildSyncCoordinator(paths, cfg)),
 	}
-	if mailbox, ok := loadInitialMailbox(paths, cfg); ok {
-		uiOptions = append(uiOptions, ui.WithMailbox(mailbox))
+	if accounts, ok := loadInitialAccounts(paths, cfg); ok {
+		uiOptions = append(uiOptions, ui.WithAccounts(accounts))
 	}
 	program := tea.NewProgram(ui.New(cfg, uiOptions...), tea.WithAltScreen())
 	if _, err := program.Run(); err != nil {
@@ -874,39 +874,60 @@ func triageActionSummary(request ui.TriageActionRequest) string {
 	}
 }
 
-func loadInitialMailbox(paths config.Paths, cfg config.Config) (ui.Mailbox, bool) {
+func loadInitialAccounts(paths config.Paths, cfg config.Config) ([]ui.AccountState, bool) {
 	ctx := context.Background()
 	db, err := cache.Open(ctx, paths)
 	if err != nil {
-		return ui.AuthFailureMailbox(err.Error()), true
+		return []ui.AccountState{{Account: "auth failure", Mailbox: ui.AuthFailureMailbox(err.Error())}}, true
 	}
 	defer db.Close()
 	if err := cache.Migrate(ctx, db); err != nil {
-		return ui.AuthFailureMailbox(err.Error()), true
+		return []ui.AccountState{{Account: "auth failure", Mailbox: ui.AuthFailureMailbox(err.Error())}}, true
 	}
 
 	accounts, err := cache.NewAccountRepository(db).List(ctx)
 	if err != nil {
-		return ui.AuthFailureMailbox(err.Error()), true
+		return []ui.AccountState{{Account: "auth failure", Mailbox: ui.AuthFailureMailbox(err.Error())}}, true
 	}
 	if len(accounts) == 0 {
-		return ui.NoAccountMailbox(), true
+		return []ui.AccountState{{Account: "no accounts", Mailbox: ui.NoAccountMailbox()}}, true
 	}
 
-	account := accounts[0]
-	if _, err := gandtsync.NewRetentionSweeper(db, cfg).Sweep(ctx, account, time.Now().UTC()); err != nil {
-		return ui.AuthFailureMailbox(err.Error()), true
+	states := make([]ui.AccountState, 0, len(accounts))
+	for _, account := range accounts {
+		if _, err := gandtsync.NewRetentionSweeper(db, cfg).Sweep(ctx, account, time.Now().UTC()); err != nil {
+			return []ui.AccountState{{Account: "auth failure", Mailbox: ui.AuthFailureMailbox(err.Error())}}, true
+		}
+		labels, err := cache.NewLabelRepository(db).List(ctx, account.ID)
+		if err != nil {
+			return []ui.AccountState{{Account: "auth failure", Mailbox: ui.AuthFailureMailbox(err.Error())}}, true
+		}
+		labelsForUI := uiLabels(ctx, db, cfg, account, labels)
+		messagesByLabel, err := uiMessagesByLabel(ctx, cache.NewMessageRepository(db), account.ID, labels)
+		if err != nil {
+			return []ui.AccountState{{Account: "auth failure", Mailbox: ui.AuthFailureMailbox(err.Error())}}, true
+		}
+		unread := 0
+		for _, label := range labelsForUI {
+			if label.ID == "UNREAD" || label.Name == "Unread" || label.ID == "INBOX" {
+				unread = label.Unread
+				break
+			}
+		}
+		status := "not synced"
+		if account.LastSyncAt != nil {
+			status = "synced " + account.LastSyncAt.Format("2006-01-02 15:04")
+		}
+		states = append(states, ui.AccountState{
+			Account:     account.Email,
+			DisplayName: account.DisplayName,
+			Color:       account.Color,
+			SyncStatus:  status,
+			Unread:      unread,
+			Mailbox:     ui.RealAccountMailbox(account.Email, labelsForUI, messagesByLabel),
+		})
 	}
-	labels, err := cache.NewLabelRepository(db).List(ctx, account.ID)
-	if err != nil {
-		return ui.AuthFailureMailbox(err.Error()), true
-	}
-	labelsForUI := uiLabels(ctx, db, cfg, account, labels)
-	messagesByLabel, err := uiMessagesByLabel(ctx, cache.NewMessageRepository(db), account.ID, labels)
-	if err != nil {
-		return ui.AuthFailureMailbox(err.Error()), true
-	}
-	return ui.RealAccountMailbox(account.Email, labelsForUI, messagesByLabel), true
+	return states, true
 }
 
 func buildThreadLoader(paths config.Paths, cfg config.Config) ui.ThreadLoader {

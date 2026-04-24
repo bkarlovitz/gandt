@@ -25,7 +25,7 @@ Grounded in `prd.md` sections 1, 3, 4, 7, 8, 10, 12, 13.1, 13.6, 16, 20, and mil
   - Leave other accounts and shared client credentials intact.
   - Validation: `go test ./internal/auth ./internal/cache ./internal/ui` covers confirm, cancel, revoke failure, keyring deletion, and cascade cleanup.
 
-- [ ] **Task 6.4**: Build the account switcher UI
+- [x] **Task 6.4**: Build the account switcher UI
   - Add `Ctrl+A` switcher overlay and digit shortcuts `1` through `9`.
   - Display email, display name if known, color badge, sync status, and unread summary.
   - Make switching update the active account in under 50ms from cached state.

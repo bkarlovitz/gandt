@@ -25,6 +25,7 @@ const (
 	ModeLabelPrompt
 	ModeCacheDashboard
 	ModeCachePolicyEditor
+	ModeAccountSwitcher
 )
 
 type Pane int
@@ -40,6 +41,8 @@ type Model struct {
 	keys                  KeyMap
 	styles                Styles
 	mailbox               Mailbox
+	accounts              []AccountState
+	activeAccount         int
 	mode                  Mode
 	width                 int
 	height                int
@@ -142,6 +145,19 @@ func WithCredentialReplacer(replacer CredentialReplacer) Option {
 func WithMailbox(mailbox Mailbox) Option {
 	return func(m *Model) {
 		m.mailbox = mailbox
+		m.accounts = []AccountState{{Account: mailbox.Account, Mailbox: mailbox, Unread: unreadCount(mailbox)}}
+		m.activeAccount = 0
+	}
+}
+
+func WithAccounts(accounts []AccountState) Option {
+	return func(m *Model) {
+		if len(accounts) == 0 {
+			return
+		}
+		m.accounts = normalizeAccountStates(accounts)
+		m.activeAccount = 0
+		m.mailbox = m.accounts[0].Mailbox
 	}
 }
 
@@ -244,6 +260,9 @@ func New(cfg config.Config, opts ...Option) Model {
 	for _, opt := range opts {
 		opt(&model)
 	}
+	if len(model.accounts) == 0 {
+		model.accounts = []AccountState{{Account: model.mailbox.Account, Mailbox: model.mailbox, Unread: unreadCount(model.mailbox)}}
+	}
 	if model.syncCoordinator != nil {
 		model.syncContext, model.syncCancel = context.WithCancel(context.Background())
 	}
@@ -267,6 +286,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.statusMessage = fmt.Sprintf("added account %s", msg.Result.Account)
 		m.mailbox = RealAccountMailbox(msg.Result.Account, msg.Result.Labels, msg.Result.MessagesByLabel)
+		m.accounts = append(m.accounts, AccountState{
+			Account:     msg.Result.Account,
+			DisplayName: msg.Result.DisplayName,
+			Color:       msg.Result.Color,
+			SyncStatus:  "synced",
+			Unread:      unreadCount(m.mailbox),
+			Mailbox:     m.mailbox,
+		})
+		m.activeAccount = len(m.accounts) - 1
 		m.selectedLabel = clamp(m.selectedLabel, 0, len(m.mailbox.Labels)-1)
 	case removeAccountDoneMsg:
 		m.removingAccount = false
@@ -286,6 +314,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.selectedMessage = 0
 			m.readerOpen = false
 		}
+		m.removeAccountState(msg.Result.Account)
 	case replaceCredentialsDoneMsg:
 		m.replacingCreds = false
 		if msg.Err != nil {
@@ -496,6 +525,9 @@ func (m Model) View() string {
 	if m.mode == ModeCachePolicyEditor {
 		return m.renderCachePolicyEditor()
 	}
+	if m.mode == ModeAccountSwitcher {
+		return m.renderAccountSwitcher()
+	}
 
 	var b strings.Builder
 	b.WriteString(m.styles.Header.Render("G&T"))
@@ -517,6 +549,8 @@ func (m Model) View() string {
 		b.WriteString("Label\n\n")
 		b.WriteString(m.labelPrompt.Input)
 		b.WriteString("\n\nPress Esc to return.")
+	case ModeAccountSwitcher:
+		b.WriteString(m.renderAccountSwitcher())
 	}
 
 	return b.String()
@@ -570,6 +604,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case ModeCachePolicyEditor:
 		return m.handleCachePolicyKey(key)
+	case ModeAccountSwitcher:
+		return m.handleAccountSwitcherKey(key)
 	case ModeSearch, ModeCompose, ModeCommand, ModeLabelPrompt:
 		if m.mode == ModeCommand {
 			return m.handleCommandKey(msg)
@@ -584,6 +620,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	switch key {
+	case "1", "2", "3", "4", "5", "6", "7", "8", "9":
+		m.switchAccountByOrdinal(int(key[0] - '1'))
 	case "q", "esc":
 		m.stopSync()
 		m.quitting = true
@@ -655,6 +693,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.startRefresh(RefreshDelta)
 	case "R":
 		return m.startRefresh(RefreshRelistLabel)
+	case "ctrl+a":
+		m.mode = ModeAccountSwitcher
 	case ":":
 		m.mode = ModeCommand
 		m.commandInput = ":"
@@ -860,6 +900,62 @@ func (m Model) handleRemoveAccountConfirmation(key string) (tea.Model, tea.Cmd) 
 		m.toastMessage = m.statusMessage
 		return m, nil
 	}
+}
+
+func (m Model) handleAccountSwitcherKey(key string) (tea.Model, tea.Cmd) {
+	switch key {
+	case "esc", "ctrl+a":
+		m.mode = ModeNormal
+	case "j", "down":
+		m.activeAccount = clamp(m.activeAccount+1, 0, len(m.accounts)-1)
+	case "k", "up":
+		m.activeAccount = clamp(m.activeAccount-1, 0, len(m.accounts)-1)
+	case "enter":
+		m.applyActiveAccount()
+		m.mode = ModeNormal
+	case "1", "2", "3", "4", "5", "6", "7", "8", "9":
+		m.switchAccountByOrdinal(int(key[0] - '1'))
+		m.mode = ModeNormal
+	}
+	return m, nil
+}
+
+func (m *Model) switchAccountByOrdinal(index int) {
+	if index < 0 || index >= len(m.accounts) {
+		m.statusMessage = "account shortcut unavailable"
+		return
+	}
+	m.activeAccount = index
+	m.applyActiveAccount()
+}
+
+func (m *Model) applyActiveAccount() {
+	if m.activeAccount < 0 || m.activeAccount >= len(m.accounts) {
+		return
+	}
+	m.mailbox = m.accounts[m.activeAccount].Mailbox
+	m.selectedLabel = clamp(m.selectedLabel, 0, len(m.mailbox.Labels)-1)
+	m.selectedMessage = 0
+	m.selectedThreadMessage = 0
+	m.readerOpen = false
+	m.statusMessage = "switched to " + m.mailbox.Account
+}
+
+func (m *Model) removeAccountState(account string) {
+	next := m.accounts[:0]
+	for _, state := range m.accounts {
+		if !strings.EqualFold(state.Account, account) && !strings.EqualFold(state.Mailbox.Account, account) {
+			next = append(next, state)
+		}
+	}
+	m.accounts = next
+	if len(m.accounts) == 0 {
+		m.activeAccount = 0
+		m.mailbox = NoAccountMailbox()
+		return
+	}
+	m.activeAccount = clamp(m.activeAccount, 0, len(m.accounts)-1)
+	m.mailbox = m.accounts[m.activeAccount].Mailbox
 }
 
 func (m Model) submitCommand() (tea.Model, tea.Cmd) {
@@ -2062,4 +2158,34 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func normalizeAccountStates(accounts []AccountState) []AccountState {
+	out := make([]AccountState, 0, len(accounts))
+	for _, account := range accounts {
+		if account.Mailbox.Account == "" {
+			account.Mailbox = RealAccountMailbox(account.Account, nil)
+		}
+		if account.Account == "" {
+			account.Account = account.Mailbox.Account
+		}
+		if account.Unread == 0 {
+			account.Unread = unreadCount(account.Mailbox)
+		}
+		out = append(out, account)
+	}
+	return out
+}
+
+func unreadCount(mailbox Mailbox) int {
+	total := 0
+	for _, label := range mailbox.Labels {
+		if strings.EqualFold(label.ID, "UNREAD") || strings.EqualFold(label.Name, "Unread") {
+			return label.Unread
+		}
+		if strings.EqualFold(label.ID, "INBOX") || strings.EqualFold(label.Name, "Inbox") {
+			total = label.Unread
+		}
+	}
+	return total
 }

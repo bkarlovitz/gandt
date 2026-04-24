@@ -230,6 +230,43 @@ func (m Model) renderMailbox() string {
 	return trimRightLines(strings.Join(lines, "\n"))
 }
 
+func (m Model) renderAccountSwitcher() string {
+	width := m.width
+	if width <= 0 {
+		width = 80
+	}
+	lines := []string{"G&T | account switcher", strings.Repeat("-", width)}
+	if len(m.accounts) == 0 {
+		lines = append(lines, fit("No accounts", width))
+	} else {
+		for i, account := range m.accounts {
+			cursor := " "
+			if i == m.activeAccount {
+				cursor = ">"
+			}
+			name := account.DisplayName
+			if name == "" {
+				name = account.Account
+			}
+			status := account.SyncStatus
+			if status == "" {
+				status = "cached"
+			}
+			color := account.Color
+			if color == "" {
+				color = "default"
+			}
+			line := fmt.Sprintf("%s %d  [%s] %s  %s  %d unread", cursor, i+1, color, name, status, account.Unread)
+			if account.DisplayName != "" && account.DisplayName != account.Account {
+				line += "  " + account.Account
+			}
+			lines = append(lines, fit(line, width))
+		}
+	}
+	lines = append(lines, strings.Repeat("-", width), fit("Enter switches selected account   1-9 jumps   Esc closes", width))
+	return trimRightLines(strings.Join(lines, "\n"))
+}
+
 func (m Model) mailboxHeader() string {
 	var header string
 	switch {
