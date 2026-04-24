@@ -144,7 +144,7 @@ func (e PolicyEvaluator) EffectiveForLabel(ctx context.Context, accountID string
 func (e PolicyEvaluator) configPolicy(accountID string, accountEmail string, labelID string) (LabelPolicy, bool) {
 	for i := len(e.config.Cache.Policies) - 1; i >= 0; i-- {
 		policy := e.config.Cache.Policies[i]
-		if !accountMatches(policy.Account, accountID, accountEmail) {
+		if !e.accountMatches(policy.Account, accountID, accountEmail) {
 			continue
 		}
 		if policy.Label != labelID {
@@ -177,7 +177,7 @@ func (e PolicyEvaluator) exclusionMatch(ctx context.Context, message MessageCont
 		}
 	}
 	for _, exclusion := range e.config.Cache.Exclusions {
-		if !accountMatches(exclusion.Account, message.AccountID, message.AccountEmail) {
+		if !e.accountMatches(exclusion.Account, message.AccountID, message.AccountEmail) {
 			continue
 		}
 		if exclusionApplies(exclusion.MatchType, exclusion.MatchValue, message) {
@@ -234,10 +234,18 @@ func uniqueNonEmpty(values []string) []string {
 	return out
 }
 
-func accountMatches(policyAccount string, accountID string, accountEmail string) bool {
+func (e PolicyEvaluator) accountMatches(policyAccount string, accountID string, accountEmail string) bool {
 	policyAccount = strings.TrimSpace(policyAccount)
 	if policyAccount == "" {
 		return true
+	}
+	if account, ok := e.config.Accounts[policyAccount]; ok {
+		if strings.TrimSpace(account.ID) != "" && account.ID == accountID {
+			return true
+		}
+		if strings.TrimSpace(account.Email) != "" && strings.EqualFold(account.Email, accountEmail) {
+			return true
+		}
 	}
 	return policyAccount == accountID || strings.EqualFold(policyAccount, accountEmail)
 }

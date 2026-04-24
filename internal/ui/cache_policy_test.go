@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/bkarlovitz/gandt/internal/config"
@@ -112,6 +113,24 @@ func TestCachePolicyEditorResetUsesDefault(t *testing.T) {
 	row := model.cachePolicyTable.Rows[0]
 	if row.Explicit || row.Depth != "metadata" || row.AttachmentRule != "none" {
 		t.Fatalf("reset row = %#v, want inherited metadata policy", row)
+	}
+}
+
+func TestCachePolicyEditorShowsConflictingAccountPolicies(t *testing.T) {
+	store := &recordingCachePolicyStore{table: CachePolicyTable{Rows: []CachePolicyRow{
+		{AccountID: "work", AccountEmail: "work@example.com", LabelID: "INBOX", LabelName: "Inbox", Depth: "body", RetentionDays: intValue(30), AttachmentRule: "none"},
+		{AccountID: "personal", AccountEmail: "personal@example.com", LabelID: "INBOX", LabelName: "Inbox", Depth: "full", RetentionDays: intValue(365), AttachmentRule: "all", AttachmentMaxMB: intValue(25)},
+	}}}
+	model := New(config.Default(), WithCachePolicyStore(store))
+	updated, cmd := submitTestCommand(model, "cache-policy")
+	updated, _ = updated.(Model).Update(cmd())
+	model = updated.(Model)
+
+	view := model.View()
+	for _, want := range []string{"work@example.com", "body", "30d", "personal@example.com", "full", "365d", "all"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("policy table missing %q:\n%s", want, view)
+		}
 	}
 }
 

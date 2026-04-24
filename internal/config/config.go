@@ -88,6 +88,8 @@ type CacheExclusion struct {
 }
 
 type AccountConfig struct {
+	Email string `toml:"email"`
+	ID    string `toml:"id"`
 	Color string `toml:"color"`
 }
 

@@ -55,7 +55,7 @@ Grounded in `prd.md` sections 1, 3, 4, 7, 8, 10, 12, 13.1, 13.6, 16, 20, and mil
   - Render per-account sync status in the switcher and active-account status bar.
   - Validation: `go test ./internal/sync/...` uses fake services to verify independent success, failure, and backoff.
 
-- [ ] **Task 6.9**: Honor per-account cache policies
+- [x] **Task 6.9**: Honor per-account cache policies
   - Ensure config policies map to account aliases correctly.
   - Allow different retention, depth, attachment, and exclusion rules per account.
   - Show policy differences in the cache dashboard and policy editor.

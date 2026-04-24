@@ -258,6 +258,46 @@ func TestPolicyEvaluatorReloadsConfigPoliciesBetweenLaunches(t *testing.T) {
 	}
 }
 
+func TestPolicyEvaluatorMapsConfigPolicyAliasesToAccounts(t *testing.T) {
+	ctx := context.Background()
+	db := migratedSyncTestDB(t)
+	accounts := cache.NewAccountRepository(db)
+	work, err := accounts.Create(ctx, cache.CreateAccountParams{Email: "work@example.com"})
+	if err != nil {
+		t.Fatalf("create work account: %v", err)
+	}
+	personal, err := accounts.Create(ctx, cache.CreateAccountParams{Email: "personal@example.com"})
+	if err != nil {
+		t.Fatalf("create personal account: %v", err)
+	}
+
+	cfg := config.Default()
+	cfg.Accounts = map[string]config.AccountConfig{
+		"work":     {Email: work.Email},
+		"personal": {ID: personal.ID},
+	}
+	cfg.Cache.Policies = []config.CachePolicy{
+		{Account: "work", Label: "Label_1", Depth: config.CacheDepthBody, RetentionDays: 30, AttachmentRule: config.AttachmentRuleNone},
+		{Account: "personal", Label: "Label_1", Depth: config.CacheDepthFull, RetentionDays: 365, AttachmentRule: config.AttachmentRuleAll, AttachmentMaxMB: 25},
+	}
+	evaluator := NewPolicyEvaluator(db, cfg)
+
+	workPolicy, err := evaluator.EffectiveForLabel(ctx, work.ID, work.Email, "Label_1")
+	if err != nil {
+		t.Fatalf("work policy: %v", err)
+	}
+	personalPolicy, err := evaluator.EffectiveForLabel(ctx, personal.ID, personal.Email, "Label_1")
+	if err != nil {
+		t.Fatalf("personal policy: %v", err)
+	}
+	if workPolicy.Depth != config.CacheDepthBody || valueOrZero(workPolicy.RetentionDays) != 30 || workPolicy.AttachmentRule != config.AttachmentRuleNone {
+		t.Fatalf("work policy = %#v, want body/30/none", workPolicy)
+	}
+	if personalPolicy.Depth != config.CacheDepthFull || valueOrZero(personalPolicy.RetentionDays) != 365 || personalPolicy.AttachmentRule != config.AttachmentRuleAll || valueOrZero(personalPolicy.AttachmentMaxMB) != 25 {
+		t.Fatalf("personal policy = %#v, want full/365/all/25", personalPolicy)
+	}
+}
+
 func migratedSyncTestDB(t *testing.T) *sqlx.DB {
 	t.Helper()
 

@@ -941,6 +941,14 @@ func configuredAccountColor(cfg config.Config, account cache.Account) string {
 			return strings.TrimSpace(entry.Color)
 		}
 	}
+	for _, entry := range cfg.Accounts {
+		if strings.TrimSpace(entry.Color) == "" {
+			continue
+		}
+		if (strings.TrimSpace(entry.ID) != "" && entry.ID == account.ID) || (strings.TrimSpace(entry.Email) != "" && strings.EqualFold(entry.Email, account.Email)) {
+			return strings.TrimSpace(entry.Color)
+		}
+	}
 	return account.Color
 }
 

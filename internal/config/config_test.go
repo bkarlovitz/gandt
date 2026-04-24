@@ -56,6 +56,7 @@ match_type = "label"
 match_value = "private"
 
 [accounts.work]
+email = "me@example.com"
 color = "#4287f5"
 
 [keys]
@@ -80,6 +81,7 @@ downloads = "~/mail-downloads"
 	assertEqual(t, len(cfg.Cache.Policies), 1)
 	assertEqual(t, string(cfg.Cache.Policies[0].AttachmentRule), "all")
 	assertEqual(t, len(cfg.Cache.Exclusions), 1)
+	assertEqual(t, cfg.Accounts["work"].Email, "me@example.com")
 	assertEqual(t, cfg.Accounts["work"].Color, "#4287f5")
 	assertEqual(t, cfg.Keys["trash"], "#")
 	assertEqual(t, cfg.Paths.Downloads, "~/mail-downloads")
