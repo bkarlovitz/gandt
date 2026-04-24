@@ -43,7 +43,7 @@ Grounded in `prd.md` sections 7, 8, 9, 10, 11, 16, 19, 20, and milestone M1.
   - Ensure logs and errors never include token values or client secrets.
   - Validation: `go test ./internal/auth/...` uses an injectable keyring interface and verifies storage keys and redacted errors.
 
-- [ ] **Task 2.7**: Build OAuth client credential setup
+- [x] **Task 2.7**: Build OAuth client credential setup
   - Add a first-run setup flow for entering Google Desktop OAuth client ID and secret.
   - Store credentials in keyring, not config files or environment variables.
   - Allow replacing credentials through a command-mode action with confirmation.
