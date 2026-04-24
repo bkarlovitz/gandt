@@ -67,7 +67,7 @@ Grounded in `prd.md` sections 5, 6, 12, 15, 16, 20, and milestone M0.
   - Render the contextual help footer from the keybinding map.
   - Validation: `go test ./internal/ui/...` simulates navigation and verifies selected label/message/reader state.
 
-- [ ] **Task 1.11**: Add a basic README for local development
+- [x] **Task 1.11**: Add a basic README for local development
   - Document the display name `G&T`, binary name `gandt`, supported platforms, and bring-your-own OAuth constraint at a high level.
   - Include local setup commands, test commands, and where config/data/log files are written.
   - Keep user-facing claims aligned with `prd.md`.
