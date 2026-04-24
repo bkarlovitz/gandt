@@ -39,3 +39,8 @@ type triageDoneMsg struct {
 	Result  TriageActionResult
 	Err     error
 }
+
+type cacheDashboardDoneMsg struct {
+	Result CacheDashboard
+	Err    error
+}

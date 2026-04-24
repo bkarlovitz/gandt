@@ -63,6 +63,7 @@ func main() {
 		ui.WithThreadLoader(buildThreadLoader(paths, cfg)),
 		ui.WithManualRefresher(buildManualRefresher(paths, cfg)),
 		ui.WithTriageActor(buildTriageActor(paths)),
+		ui.WithCacheDashboardLoader(buildCacheDashboardLoader(paths)),
 		ui.WithSyncCoordinator(buildSyncCoordinator(paths, cfg)),
 	}
 	if mailbox, ok := loadInitialMailbox(paths); ok {
@@ -190,6 +191,87 @@ func buildManualRefresher(paths config.Paths, cfg config.Config) ui.ManualRefres
 		}
 		return ui.RefreshResult{Summary: result.Status}, nil
 	})
+}
+
+func buildCacheDashboardLoader(paths config.Paths) ui.CacheDashboardLoader {
+	return ui.CacheDashboardLoaderFunc(func() (ui.CacheDashboard, error) {
+		ctx := context.Background()
+		db, err := cache.Open(ctx, paths)
+		if err != nil {
+			return ui.CacheDashboard{}, err
+		}
+		defer db.Close()
+		if err := cache.Migrate(ctx, db); err != nil {
+			return ui.CacheDashboard{}, err
+		}
+
+		stats, err := cache.NewCacheStatsService(db).Summary(ctx, time.Now().UTC())
+		if err != nil {
+			return ui.CacheDashboard{}, err
+		}
+		return uiCacheDashboard(ctx, db, stats), nil
+	})
+}
+
+func uiCacheDashboard(ctx context.Context, db *sqlx.DB, stats cache.CacheStats) ui.CacheDashboard {
+	dashboard := ui.CacheDashboard{
+		GeneratedAt:           stats.GeneratedAt,
+		SQLiteBytes:           stats.Total.SQLiteBytes,
+		TotalBytes:            stats.Total.TotalBytes,
+		MessageCount:          stats.Total.MessageCount,
+		BodyCount:             stats.Total.BodyCount,
+		AttachmentCount:       stats.Attachments.AttachmentCount,
+		CachedAttachmentCount: stats.Attachments.CachedFileCount,
+		MessageBytes:          stats.Total.MessageBytes,
+		BodyBytes:             stats.Total.BodyBytes,
+		AttachmentBytes:       stats.Total.AttachmentBytes,
+		FTSBytes:              stats.FTS.Bytes,
+		FTSRows:               stats.FTS.RowCount,
+	}
+
+	accountEmails := map[string]string{}
+	for _, account := range stats.Accounts {
+		accountEmails[account.AccountID] = account.Email
+		dashboard.Accounts = append(dashboard.Accounts, ui.CacheDashboardAccount{
+			Email:           account.Email,
+			MessageCount:    account.MessageCount,
+			BodyCount:       account.BodyCount,
+			AttachmentCount: account.AttachmentCount,
+			TotalBytes:      account.TotalBytes,
+		})
+	}
+
+	policies := cache.NewSyncPolicyRepository(db)
+	for _, label := range stats.Labels {
+		depth := ""
+		if policy, err := policies.EffectiveForLabel(ctx, label.AccountID, label.LabelID); err == nil {
+			depth = policy.Depth
+		}
+		dashboard.Labels = append(dashboard.Labels, ui.CacheDashboardLabel{
+			AccountEmail:    accountEmails[label.AccountID],
+			LabelID:         label.LabelID,
+			LabelName:       label.LabelName,
+			CacheDepth:      depth,
+			MessageCount:    label.MessageCount,
+			BodyCount:       label.BodyCount,
+			AttachmentCount: label.AttachmentCount,
+			AttachmentBytes: label.AttachmentBytes,
+			TotalBytes:      label.TotalBytes,
+		})
+	}
+	for _, age := range stats.Ages {
+		dashboard.Ages = append(dashboard.Ages, ui.CacheDashboardAge{
+			Bucket:          age.Bucket,
+			MessageCount:    age.MessageCount,
+			BodyCount:       age.BodyCount,
+			AttachmentCount: age.AttachmentCount,
+			TotalBytes:      age.TotalBytes,
+		})
+	}
+	for _, row := range stats.Rows {
+		dashboard.Rows = append(dashboard.Rows, ui.CacheDashboardRow{Table: row.Table, Rows: row.Rows})
+	}
+	return dashboard
 }
 
 func runOneAccountRefresh(ctx context.Context, paths config.Paths, cfg config.Config, request ui.RefreshRequest) (gandtsync.AccountSyncResult, error) {

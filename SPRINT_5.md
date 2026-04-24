@@ -13,7 +13,7 @@ Grounded in `prd.md` sections 7, 10, 11, 16, 17, 18, 20, and milestone M2.
   - Expose query results through typed service structs.
   - Validation: `go test ./internal/cache/...` covers count/size calculations with fixture databases.
 
-- [ ] **Task 5.2**: Build the `:cache` dashboard
+- [x] **Task 5.2**: Build the `:cache` dashboard
   - Render size, count, age, attachment, and policy summaries in a TUI table.
   - Show sync policy indicators consistently with the label sidebar.
   - Keep dashboard render target below 200ms for a large fixture database.

@@ -23,6 +23,7 @@ const (
 	ModeCommand
 	ModeHelp
 	ModeLabelPrompt
+	ModeCacheDashboard
 )
 
 type Pane int
@@ -64,6 +65,9 @@ type Model struct {
 	refreshingAccount     string
 	toastMessage          string
 	triageActor           TriageActor
+	cacheDashboardLoader  CacheDashboardLoader
+	loadingCacheDashboard bool
+	cacheDashboard        CacheDashboard
 	nextActionID          int
 	pendingActions        map[int]triageSnapshot
 	undo                  *undoState
@@ -135,6 +139,14 @@ func WithTriageActor(actor TriageActor) Option {
 	return func(m *Model) {
 		if actor != nil {
 			m.triageActor = actor
+		}
+	}
+}
+
+func WithCacheDashboardLoader(loader CacheDashboardLoader) Option {
+	return func(m *Model) {
+		if loader != nil {
+			m.cacheDashboardLoader = loader
 		}
 	}
 }
@@ -254,6 +266,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.statusMessage = summary
 		m.toastMessage = summary
+	case cacheDashboardDoneMsg:
+		m.loadingCacheDashboard = false
+		if msg.Err != nil {
+			m.statusMessage = "cache dashboard failed: " + msg.Err.Error()
+			m.toastMessage = m.statusMessage
+			return m, nil
+		}
+		m.cacheDashboard = msg.Result
+		m.mode = ModeCacheDashboard
+		m.statusMessage = "cache dashboard loaded"
 	case SyncUpdateMsg:
 		if msg.Stopped {
 			return m, nil
@@ -279,6 +301,9 @@ func (m Model) View() string {
 
 	if m.mode == ModeNormal {
 		return m.renderMailbox()
+	}
+	if m.mode == ModeCacheDashboard {
+		return m.renderCacheDashboard()
 	}
 
 	var b strings.Builder
@@ -321,6 +346,19 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		switch key {
 		case "esc", "?":
 			m.mode = ModeNormal
+		case "q":
+			m.stopSync()
+			m.quitting = true
+			return m, tea.Quit
+		}
+		return m, nil
+	case ModeCacheDashboard:
+		switch key {
+		case "esc":
+			m.mode = ModeNormal
+		case ":":
+			m.mode = ModeCommand
+			m.commandInput = ":"
 		case "q":
 			m.stopSync()
 			m.quitting = true
@@ -485,6 +523,21 @@ func (m Model) submitCommand() (tea.Model, tea.Cmd) {
 		return m, m.runReplaceCredentials()
 	case "sync-all":
 		return m.startRefresh(RefreshAll)
+	case "cache":
+		if m.loadingCacheDashboard {
+			m.statusMessage = "cache dashboard already loading"
+			m.toastMessage = m.statusMessage
+			return m, nil
+		}
+		if m.cacheDashboardLoader == nil {
+			m.statusMessage = "cache dashboard unavailable"
+			m.toastMessage = m.statusMessage
+			return m, nil
+		}
+		m.loadingCacheDashboard = true
+		m.statusMessage = "loading cache dashboard..."
+		m.toastMessage = m.statusMessage
+		return m, m.runCacheDashboard()
 	case "quit", "q":
 		m.stopSync()
 		m.quitting = true
@@ -629,6 +682,13 @@ func (m Model) runTriageAction(id int, request TriageActionRequest) tea.Cmd {
 	return func() tea.Msg {
 		result, err := m.triageActor.ApplyAction(request)
 		return triageDoneMsg{ID: id, Request: request, Result: result, Err: err}
+	}
+}
+
+func (m Model) runCacheDashboard() tea.Cmd {
+	return func() tea.Msg {
+		result, err := m.cacheDashboardLoader.LoadCacheDashboard()
+		return cacheDashboardDoneMsg{Result: result, Err: err}
 	}
 }
 
