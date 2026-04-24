@@ -150,6 +150,42 @@ depth = "metadata"
 	assertEqual(t, cfg.Cache.Defaults.TotalBudgetMB, 2000)
 }
 
+func TestLoadKeyOverridesValidatesConflictsAndInvalidNames(t *testing.T) {
+	valid := writeConfig(t, `
+[keys]
+archive = "a"
+browser = "O"
+`)
+	cfg, err := Load(Paths{ConfigFile: valid})
+	if err != nil {
+		t.Fatalf("load valid key overrides: %v", err)
+	}
+	assertEqual(t, cfg.Keys["archive"], "a")
+
+	tests := map[string]string{
+		"conflict": `
+[keys]
+archive = "j"
+`,
+		"invalid key": `
+[keys]
+archive = "ctrl+space"
+`,
+		"unknown action": `
+[keys]
+launch = "x"
+`,
+	}
+	for name, body := range tests {
+		t.Run(name, func(t *testing.T) {
+			_, err := Load(Paths{ConfigFile: writeConfig(t, body)})
+			if err == nil {
+				t.Fatal("expected key override error")
+			}
+		})
+	}
+}
+
 func TestLoadReloadsCachePolicyChanges(t *testing.T) {
 	path := writeConfig(t, `
 [cache.defaults]

@@ -320,7 +320,7 @@ func WithSyncCoordinator(coordinator SyncCoordinator) Option {
 func New(cfg config.Config, opts ...Option) Model {
 	model := Model{
 		config:         cfg,
-		keys:           DefaultKeyMap(),
+		keys:           NewKeyMap(cfg.Keys),
 		styles:         NewStyles(cfg.UI.Theme, os.Getenv("NO_COLOR") != ""),
 		mailbox:        fakeMailbox(),
 		mode:           ModeNormal,
@@ -750,23 +750,23 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	switch m.mode {
 	case ModeHelp:
-		switch key {
-		case "esc", "?":
+		switch {
+		case key == "esc" || m.keys.ActionFor(key) == "help":
 			m.mode = ModeNormal
-		case "q":
+		case m.keys.ActionFor(key) == "quit":
 			m.stopSync()
 			m.quitting = true
 			return m, tea.Quit
 		}
 		return m, nil
 	case ModeCacheDashboard:
-		switch key {
-		case "esc":
+		switch {
+		case key == "esc":
 			m.mode = ModeNormal
-		case ":":
+		case m.keys.ActionFor(key) == "command":
 			m.mode = ModeCommand
 			m.commandInput = ":"
-		case "q":
+		case m.keys.ActionFor(key) == "quit":
 			m.stopSync()
 			m.quitting = true
 			return m, tea.Quit
@@ -795,89 +795,92 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	switch key {
-	case "1", "2", "3", "4", "5", "6", "7", "8", "9":
+	if key >= "1" && key <= "9" {
 		m.switchAccountByOrdinal(int(key[0] - '1'))
-	case "q", "esc":
+		return m, nil
+	}
+
+	switch m.keys.ActionFor(key) {
+	case "quit":
 		m.stopSync()
 		m.quitting = true
 		return m, tea.Quit
-	case "?":
+	case "help":
 		m.mode = ModeHelp
-	case "j", "down":
+	case "down":
 		m.moveSelection(1)
-	case "k", "up":
+	case "up":
 		m.moveSelection(-1)
-	case "g":
+	case "top":
 		m.jumpSelection(false)
-	case "G":
+	case "bottom":
 		m.jumpSelection(true)
-	case "enter":
+	case "open":
 		m.readerOpen = true
 		m.focus = PaneReader
 		return m, m.loadSelectedThreadIfNeeded()
-	case "J":
+	case "thread_next_message":
 		m.moveThreadMessage(1)
-	case "K":
+	case "thread_previous_message":
 		m.moveThreadMessage(-1)
-	case "N":
+	case "next_thread":
 		m.moveSelection(1)
 		m.readerOpen = true
 		m.focus = PaneReader
 		return m, m.loadSelectedThreadIfNeeded()
-	case "P":
+	case "previous_thread":
 		m.moveSelection(-1)
 		m.readerOpen = true
 		m.focus = PaneReader
 		return m, m.loadSelectedThreadIfNeeded()
-	case "V":
+	case "render_mode":
 		m.toggleRenderMode()
-	case "B":
+	case "browser":
 		return m.openSelectedMessageInBrowser()
-	case "z":
+	case "quotes":
 		m.showQuotes = !m.showQuotes
 		if m.showQuotes {
 			m.statusMessage = "quotes shown"
 		} else {
 			m.statusMessage = "quotes collapsed"
 		}
-	case "tab":
+	case "next_pane":
 		m.nextPane()
-	case "/":
+	case "search":
 		m.enterSearchMode()
-	case "c":
+	case "compose":
 		m.startComposeMode(composeKindNew())
-	case "ctrl+r":
+	case "refresh":
 		if m.manualRefresher != nil {
 			return m.startRefresh(RefreshDelta)
 		}
-	case "r":
+	case "reply":
 		m.startComposeMode(composeKindReply())
-	case "R":
+	case "reply_all":
 		m.startComposeMode(composeKindReplyAll())
-	case "f":
+	case "forward":
 		m.startComposeMode(composeKindForward())
-	case "e":
+	case "archive":
 		return m.startSelectedTriageAction(TriageArchive)
-	case "#":
+	case "trash":
 		return m.startSelectedTriageAction(TriageTrash)
-	case "!":
+	case "spam":
 		return m.startSelectedTriageAction(TriageSpam)
-	case "s":
+	case "star":
 		return m.startSelectedTriageAction(TriageStar)
-	case "u":
+	case "unread":
 		return m.startSelectedTriageAction(TriageUnread)
-	case "U":
+	case "undo":
 		return m.startUndo()
-	case "m":
+	case "mute":
 		return m.startSelectedTriageAction(TriageMute)
-	case "+":
+	case "label_add":
 		return m.startLabelPrompt(TriageLabelAdd)
-	case "-":
+	case "label_remove":
 		return m.startLabelPrompt(TriageLabelRemove)
-	case "ctrl+a":
+	case "account_switcher":
 		m.mode = ModeAccountSwitcher
-	case ":":
+	case "command":
 		m.mode = ModeCommand
 		m.commandInput = ":"
 	}
@@ -915,35 +918,35 @@ func (m Model) handleSearchKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleRecentSearchKey(msg)
 	}
 	if len(m.search.Results) > 0 {
-		switch msg.String() {
-		case "j", "down":
+		switch m.keys.ActionFor(msg.String()) {
+		case "down":
 			m.moveSelection(1)
 			return m, nil
-		case "k", "up":
+		case "up":
 			m.moveSelection(-1)
 			return m, nil
-		case "g":
+		case "top":
 			m.jumpSelection(false)
 			return m, nil
-		case "G":
+		case "bottom":
 			m.jumpSelection(true)
 			return m, nil
-		case "enter":
+		case "open":
 			m.readerOpen = true
 			m.focus = PaneReader
 			return m, m.loadSelectedThreadIfNeeded()
-		case "J":
+		case "thread_next_message":
 			m.moveThreadMessage(1)
 			return m, nil
-		case "K":
+		case "thread_previous_message":
 			m.moveThreadMessage(-1)
 			return m, nil
-		case "N":
+		case "next_thread":
 			m.moveSelection(1)
 			m.readerOpen = true
 			m.focus = PaneReader
 			return m, m.loadSelectedThreadIfNeeded()
-		case "P":
+		case "previous_thread":
 			m.moveSelection(-1)
 			m.readerOpen = true
 			m.focus = PaneReader
@@ -984,14 +987,14 @@ func (m Model) handleSearchKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleRecentSearchKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "esc", "ctrl+r":
+	switch {
+	case msg.String() == "esc" || m.keys.ActionFor(msg.String()) == "refresh":
 		m.search.ShowRecents = false
-	case "j", "down":
+	case m.keys.ActionFor(msg.String()) == "down":
 		m.search.SelectedRecent = clamp(m.search.SelectedRecent+1, 0, len(m.search.Recents)-1)
-	case "k", "up":
+	case m.keys.ActionFor(msg.String()) == "up":
 		m.search.SelectedRecent = clamp(m.search.SelectedRecent-1, 0, len(m.search.Recents)-1)
-	case "enter":
+	case m.keys.ActionFor(msg.String()) == "open":
 		if len(m.search.Recents) == 0 {
 			m.statusMessage = "no recent search selected"
 			return m, nil
@@ -1001,7 +1004,7 @@ func (m Model) handleRecentSearchKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.search.Query = recent.Query
 		m.search.Mode = recent.Mode
 		return m, m.submitSearch()
-	case "x", "delete", "backspace":
+	case msg.String() == "x" || msg.String() == "delete" || msg.String() == "backspace":
 		if len(m.search.Recents) == 0 {
 			m.statusMessage = "no recent search selected"
 			return m, nil

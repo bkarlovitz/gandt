@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sort"
+	"strings"
 
 	"github.com/BurntSushi/toml"
 )
@@ -175,6 +177,9 @@ func (cfg Config) Validate() error {
 	if !validAttachmentRule(cfg.Cache.Defaults.AttachmentRule) {
 		return fmt.Errorf("invalid cache.defaults.attachment_rule %q", cfg.Cache.Defaults.AttachmentRule)
 	}
+	if err := ValidateKeyOverrides(cfg.Keys); err != nil {
+		return err
+	}
 
 	for i, policy := range cfg.Cache.Policies {
 		if !validCacheDepth(policy.Depth) {
@@ -186,6 +191,112 @@ func (cfg Config) Validate() error {
 	}
 
 	return nil
+}
+
+func ValidateKeyOverrides(overrides map[string]string) error {
+	if len(overrides) == 0 {
+		return nil
+	}
+	bindings := defaultKeyBindings()
+	for action, value := range overrides {
+		if _, ok := bindings[action]; !ok {
+			return fmt.Errorf("unknown [keys].%s (valid actions: %s)", action, strings.Join(sortedKeys(bindings), ", "))
+		}
+		keys := splitKeyList(value)
+		if len(keys) == 0 {
+			return fmt.Errorf("invalid [keys].%s: at least one key is required", action)
+		}
+		for _, keyName := range keys {
+			if !validKeyName(keyName) {
+				return fmt.Errorf("invalid [keys].%s key %q", action, keyName)
+			}
+		}
+		bindings[action] = keys
+	}
+
+	seen := map[string]string{}
+	for action, keys := range bindings {
+		for _, keyName := range keys {
+			if other, ok := seen[keyName]; ok {
+				return fmt.Errorf("key %q is assigned to both [keys].%s and [keys].%s", keyName, other, action)
+			}
+			seen[keyName] = action
+		}
+	}
+	return nil
+}
+
+func defaultKeyBindings() map[string][]string {
+	return map[string][]string{
+		"up":                      {"k", "up"},
+		"down":                    {"j", "down"},
+		"top":                     {"g"},
+		"bottom":                  {"G"},
+		"open":                    {"enter"},
+		"next_pane":               {"tab"},
+		"quit":                    {"q", "esc", "ctrl+c"},
+		"help":                    {"?"},
+		"search":                  {"/"},
+		"compose":                 {"c"},
+		"command":                 {":"},
+		"thread_next_message":     {"J"},
+		"thread_previous_message": {"K"},
+		"next_thread":             {"N"},
+		"previous_thread":         {"P"},
+		"render_mode":             {"V"},
+		"browser":                 {"B"},
+		"quotes":                  {"z"},
+		"refresh":                 {"ctrl+r"},
+		"reply":                   {"r"},
+		"reply_all":               {"R"},
+		"forward":                 {"f"},
+		"archive":                 {"e"},
+		"trash":                   {"#"},
+		"spam":                    {"!"},
+		"star":                    {"s"},
+		"unread":                  {"u"},
+		"undo":                    {"U"},
+		"mute":                    {"m"},
+		"label_add":               {"+"},
+		"label_remove":            {"-"},
+		"account_switcher":        {"ctrl+a"},
+	}
+}
+
+func splitKeyList(value string) []string {
+	fields := strings.FieldsFunc(value, func(r rune) bool {
+		return r == ',' || r == ' ' || r == '\t' || r == '\n'
+	})
+	out := make([]string, 0, len(fields))
+	for _, field := range fields {
+		field = strings.TrimSpace(field)
+		if field != "" {
+			out = append(out, field)
+		}
+	}
+	return out
+}
+
+func validKeyName(value string) bool {
+	if len([]rune(value)) == 1 {
+		return true
+	}
+	switch value {
+	case "up", "down", "left", "right", "enter", "tab", "esc", "backspace", "delete",
+		"ctrl+a", "ctrl+b", "ctrl+c", "ctrl+d", "ctrl+e", "ctrl+f", "ctrl+h", "ctrl+j", "ctrl+k", "ctrl+l", "ctrl+n", "ctrl+p", "ctrl+r", "ctrl+s", "ctrl+t", "ctrl+u", "ctrl+w", "ctrl+x", "ctrl+y", "ctrl+z", "ctrl+/", "ctrl+_", "ctrl+?":
+		return true
+	default:
+		return false
+	}
+}
+
+func sortedKeys(values map[string][]string) []string {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 func validTheme(value Theme) bool {

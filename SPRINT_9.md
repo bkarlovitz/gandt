@@ -19,7 +19,7 @@ Grounded in `prd.md` sections 5, 12, 13.10, 14, 15, 16, 17, 18, 19, 20, 21 M6, 2
   - Respect `NO_COLOR` in every view.
   - Validation: `go test ./internal/ui/...` snapshots key views for dark, light, account accent, and no-color output.
 
-- [ ] **Task 9.3**: Complete keybinding configuration
+- [x] **Task 9.3**: Complete keybinding configuration
   - Load key overrides from `[keys]`.
   - Detect conflicts and invalid key names with actionable errors.
   - Keep help overlay generated from the active keymap.
