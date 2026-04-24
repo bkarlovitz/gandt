@@ -1,7 +1,7 @@
 # Sprint 1: Foundations - Runnable TUI With Fake Mail
 
 ## Objective
-`gandt` builds as a Go 1.22+ CLI, opens a Bubble Tea three-pane fake inbox, loads local config defaults, logs to a file, and quits cleanly.
+`gandt` builds as a Go 1.25+ CLI, opens a Bubble Tea three-pane fake inbox, loads local config defaults, logs to a file, and quits cleanly.
 
 ## Source Context
 Grounded in `prd.md` sections 5, 6, 12, 15, 16, 20, and milestone M0.
@@ -13,7 +13,7 @@ Grounded in `prd.md` sections 5, 6, 12, 15, 16, 20, and milestone M0.
   - Keep root package exports empty for v1 unless a concrete need appears.
   - Validation: `go test ./...` passes and `go run ./cmd/gandt --version` prints an injected or development version.
 
-- [ ] **Task 1.2**: Pin the foundation dependencies
+- [x] **Task 1.2**: Pin the foundation dependencies
   - Add Bubble Tea, Bubbles, Lip Gloss, Glamour, Huh, Charm log, TOML/config dependency, SQLite, sqlx, OAuth2, Gmail API, keyring, html2text, and browser dependencies.
   - Verify the dependency graph supports `CGO_ENABLED=0`.
   - Document any dependency deferred until its sprint if adding all dependencies upfront creates unused-code churn.
@@ -27,7 +27,7 @@ Grounded in `prd.md` sections 5, 6, 12, 15, 16, 20, and milestone M0.
 
 - [ ] **Task 1.4**: Configure CI for supported platforms
   - Add GitHub Actions for Linux, macOS, and Windows.
-  - Test at least Go 1.22 and the current stable Go version supported by the project.
+  - Test at least Go 1.25 and the current stable Go version supported by the project.
   - Run formatting, tests, `go vet`, and a static binary build check.
   - Validation: a pull request shows all CI jobs green.
 

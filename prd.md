@@ -6,7 +6,7 @@
 **Project name:** G&T
 **Binary / module slug:** `gandt`
 **Target platforms:** macOS, Linux (primary); Windows (best-effort)
-**Language:** Go 1.22+
+**Language:** Go 1.25+
 
 ### Naming conventions
 
@@ -110,6 +110,7 @@ A developer or operator who manages 2–4 Gmail accounts (personal + work + side
 ### Build & distribution
 
 - Single static binary. `CGO_ENABLED=0` (hence pure-Go SQLite).
+- Minimum Go version: 1.25, matching current foundation dependency floors.
 - Release via `goreleaser` with Homebrew tap.
 - Version injection via `-ldflags`.
 
@@ -944,7 +945,7 @@ Account-specific OAuth tokens and client credentials are in keychain, not in thi
 | `ui/` | `teatest` package from Bubble Tea for integration tests on the Model |
 | End-to-end | Manual QA against a real test Gmail account before each release |
 
-CI: GitHub Actions, matrix on macOS + Linux + Windows, Go 1.22 + 1.23.
+CI: GitHub Actions, matrix on macOS + Linux + Windows, Go 1.25 + the current stable Go release.
 
 ---
 
