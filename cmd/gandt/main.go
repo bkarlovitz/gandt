@@ -237,9 +237,6 @@ func buildManualRefresher(paths config.Paths, cfg config.Config) ui.ManualRefres
 
 func buildSearchRunner(paths config.Paths) ui.SearchRunner {
 	return ui.SearchRunnerFunc(func(ctx context.Context, request ui.SearchRequest) (ui.SearchResult, error) {
-		if request.Mode != ui.SearchModeOnline {
-			return ui.SearchResult{}, fmt.Errorf("%s search unavailable", request.Mode)
-		}
 		db, err := cache.Open(ctx, paths)
 		if err != nil {
 			return ui.SearchResult{}, err
@@ -251,6 +248,25 @@ func buildSearchRunner(paths config.Paths) ui.SearchRunner {
 		account, err := cache.NewAccountRepository(db).GetByEmail(ctx, request.Account)
 		if err != nil {
 			return ui.SearchResult{}, err
+		}
+		if request.Mode == ui.SearchModeOffline {
+			summaries, err := cache.NewMessageRepository(db).SearchSummaries(ctx, account.ID, request.Query, request.Limit)
+			if err != nil {
+				return ui.SearchResult{}, err
+			}
+			messages := make([]ui.Message, 0, len(summaries))
+			for _, summary := range summaries {
+				messages = append(messages, uiMessage(summary))
+			}
+			return ui.SearchResult{
+				Account:  request.Account,
+				Query:    request.Query,
+				Mode:     request.Mode,
+				Messages: messages,
+			}, nil
+		}
+		if request.Mode != ui.SearchModeOnline {
+			return ui.SearchResult{}, fmt.Errorf("%s search unavailable", request.Mode)
 		}
 		gmailClient, err := gmailClientForAccount(ctx, account.ID)
 		if err != nil {

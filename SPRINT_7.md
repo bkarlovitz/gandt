@@ -37,7 +37,7 @@ Grounded in `prd.md` sections 7, 9, 13.4, 15, 18, 20, and milestone M4.
   - Preserve keyboard navigation and reader behavior from search results.
   - Validation: `go test ./internal/ui/...` snapshots online results, offline results, empty state, loading, and error states.
 
-- [ ] **Task 7.6**: Add `Ctrl+/` mode toggle
+- [x] **Task 7.6**: Add `Ctrl+/` mode toggle
   - Toggle the current search between online and offline mode.
   - Re-run the query in the new mode when a query exists.
   - Default to offline mode automatically when the active account is offline and show that mode clearly.

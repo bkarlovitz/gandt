@@ -247,6 +247,49 @@ func TestSearchSubmitCancelsPreviousSearchAndIgnoresStaleResults(t *testing.T) {
 	}
 }
 
+func TestSearchToggleRerunsExistingQuery(t *testing.T) {
+	runner := &fakeSearchRunner{}
+	model := New(config.Default(), WithSearchRunner(runner))
+	updated, _ := model.Update(keyMsg("/"))
+	model = updated.(Model)
+	for _, r := range "from:ada" {
+		updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		model = updated.(Model)
+	}
+
+	updated, cmd := model.Update(keyMsg("ctrl+/"))
+	model = updated.(Model)
+	if cmd == nil || model.search.Mode != SearchModeOffline || !model.search.Loading {
+		t.Fatalf("toggle = mode %s loading %v cmd %T, want offline rerun", model.search.Mode, model.search.Loading, cmd)
+	}
+	_ = cmd()
+	if len(runner.requests) != 1 || runner.requests[0].Mode != SearchModeOffline || runner.requests[0].Query != "from:ada" {
+		t.Fatalf("requests = %#v, want offline rerun with query", runner.requests)
+	}
+}
+
+func TestSearchOfflineDefaultSubmitsOfflineRequest(t *testing.T) {
+	runner := &fakeSearchRunner{}
+	model := New(config.Default(), WithSearchRunner(runner))
+	model.offline = true
+	updated, _ := model.Update(keyMsg("/"))
+	model = updated.(Model)
+	for _, r := range "subject:cached" {
+		updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		model = updated.(Model)
+	}
+
+	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(Model)
+	if cmd == nil || model.search.Mode != SearchModeOffline {
+		t.Fatalf("submit = mode %s cmd %T, want offline command", model.search.Mode, cmd)
+	}
+	_ = cmd()
+	if len(runner.requests) != 1 || runner.requests[0].Mode != SearchModeOffline {
+		t.Fatalf("requests = %#v, want offline request", runner.requests)
+	}
+}
+
 type fakeSearchRunner struct {
 	result   SearchResult
 	requests []SearchRequest
