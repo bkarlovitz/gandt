@@ -67,11 +67,17 @@ Grounded in `prd.md` sections 1, 3, 4, 7, 8, 10, 12, 13.1, 13.6, 16, 20, and mil
   - Preserve sensible defaults for active-account commands.
   - Validation: `go test ./internal/ui/...` covers account selection, active-account default, and invalid account cases.
 
-- [ ] **Task 6.11**: Verify multi-account performance and privacy
+- [x] **Task 6.11**: Verify multi-account performance and privacy
   - Seed fixture databases for three accounts and verify startup remains below the PRD target.
   - Audit logs and UI errors for unintended account data exposure.
   - Confirm switching does not trigger synchronous network calls.
   - Validation: benchmarks and manual QA notes confirm startup, switch latency, and no cross-account leakage.
+
+  Notes:
+  - Added a three-account fixture startup test that loads 750 cached messages total and verifies the cold cached startup path remains under the PRD target of 300ms.
+  - Existing switcher tests verify account switches return no command and complete under 50ms from cached state, so switching does not trigger synchronous network calls.
+  - Cross-account privacy is covered by overlapping Gmail ID tests in `internal/cache` and `internal/ui`, plus triage completion guards that avoid applying completed actions to the wrong active account.
+  - Log/error audit: new multi-account status strings use account counts or opaque account IDs where available; no OAuth tokens, client credentials, message bodies, or sender/recipient contents were added to logs or user-facing errors.
 
 - [ ] **Task 6.12**: Verify the M3 acceptance path
   - Add three real Gmail test accounts.

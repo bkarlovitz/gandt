@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -205,6 +206,40 @@ func TestResolveRefreshAccountSupportsActiveDefaultAndInvalidAccount(t *testing.
 	}
 }
 
+func TestLoadInitialAccountsThreeAccountStartupUnderPRDTarget(t *testing.T) {
+	ctx := context.Background()
+	paths := config.Paths{DataDir: t.TempDir()}
+	db, err := cache.Open(ctx, paths)
+	if err != nil {
+		t.Fatalf("open cache: %v", err)
+	}
+	if err := cache.Migrate(ctx, db); err != nil {
+		t.Fatalf("migrate cache: %v", err)
+	}
+	for i := 0; i < 3; i++ {
+		account, err := cache.NewAccountRepository(db).Create(ctx, cache.CreateAccountParams{Email: fmt.Sprintf("acct-%d@example.com", i)})
+		if err != nil {
+			t.Fatalf("create account %d: %v", i, err)
+		}
+		if err := seedMainAccountMessages(ctx, db, account, 250); err != nil {
+			t.Fatalf("seed account %d messages: %v", i, err)
+		}
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("close cache: %v", err)
+	}
+
+	start := time.Now()
+	accounts, ok := loadInitialAccounts(paths, config.Default())
+	elapsed := time.Since(start)
+	if !ok || len(accounts) != 3 {
+		t.Fatalf("accounts ok=%v len=%d, want three loaded accounts", ok, len(accounts))
+	}
+	if elapsed >= 300*time.Millisecond {
+		t.Fatalf("startup load took %s, want below PRD target 300ms", elapsed)
+	}
+}
+
 func seedMainTestAccount(t *testing.T, db *sqlx.DB) cache.Account {
 	t.Helper()
 
@@ -222,4 +257,35 @@ func seedMainTestAccount(t *testing.T, db *sqlx.DB) cache.Account {
 		}
 	}
 	return account
+}
+
+func seedMainAccountMessages(ctx context.Context, db *sqlx.DB, account cache.Account, count int) error {
+	if err := cache.NewLabelRepository(db).Upsert(ctx, cache.Label{AccountID: account.ID, ID: "INBOX", Name: "Inbox", Type: "system", Unread: count / 3, Total: count}); err != nil {
+		return err
+	}
+	when := time.Date(2026, 4, 24, 12, 0, 0, 0, time.UTC)
+	for i := 0; i < count; i++ {
+		threadID := fmt.Sprintf("thread-%03d", i)
+		messageID := fmt.Sprintf("message-%03d", i)
+		if err := cache.NewThreadRepository(db).Upsert(ctx, cache.Thread{AccountID: account.ID, ID: threadID, LastMessageDate: &when}); err != nil {
+			return err
+		}
+		body := "cached body"
+		if err := cache.NewMessageRepository(db).Upsert(ctx, cache.Message{
+			AccountID:    account.ID,
+			ID:           messageID,
+			ThreadID:     threadID,
+			FromAddr:     "Sender <sender@example.com>",
+			Subject:      fmt.Sprintf("Subject %03d", i),
+			Snippet:      "Cached snippet",
+			BodyPlain:    &body,
+			InternalDate: &when,
+		}); err != nil {
+			return err
+		}
+		if err := cache.NewMessageLabelRepository(db).Upsert(ctx, cache.MessageLabel{AccountID: account.ID, MessageID: messageID, LabelID: "INBOX"}); err != nil {
+			return err
+		}
+	}
+	return nil
 }
