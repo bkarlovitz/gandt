@@ -77,6 +77,8 @@ type Model struct {
 	cacheExclusionStore   CacheExclusionStore
 	pendingCacheExclusion *CacheExclusionPreview
 	loadingCacheExclusion bool
+	cachePurgeStore       CachePurgeStore
+	loadingCachePurge     bool
 	nextActionID          int
 	pendingActions        map[int]triageSnapshot
 	undo                  *undoState
@@ -172,6 +174,14 @@ func WithCacheExclusionStore(store CacheExclusionStore) Option {
 	return func(m *Model) {
 		if store != nil {
 			m.cacheExclusionStore = store
+		}
+	}
+}
+
+func WithCachePurgeStore(store CachePurgeStore) Option {
+	return func(m *Model) {
+		if store != nil {
+			m.cachePurgeStore = store
 		}
 	}
 }
@@ -361,6 +371,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.statusMessage = fmt.Sprintf("cache exclusion saved; purged %d messages", msg.Result.DeletedMessages)
+		m.toastMessage = m.statusMessage
+	case cachePurgePreviewDoneMsg:
+		m.loadingCachePurge = false
+		if msg.Err != nil {
+			m.statusMessage = "cache purge failed: " + msg.Err.Error()
+			m.toastMessage = m.statusMessage
+			return m, nil
+		}
+		m.statusMessage = cachePurgePreviewSummary(msg.Preview)
 		m.toastMessage = m.statusMessage
 	case SyncUpdateMsg:
 		if msg.Stopped {
@@ -755,6 +774,8 @@ func (m Model) submitCommand() (tea.Model, tea.Cmd) {
 		return m, m.runCachePolicyLoad()
 	case "cache-exclude":
 		return m.startCacheExclusionPreview(fields)
+	case "cache-purge":
+		return m.startCachePurgePreview(fields)
 	case "quit", "q":
 		m.stopSync()
 		m.quitting = true
@@ -799,6 +820,32 @@ func (m Model) startCacheExclusionPreview(fields []string) (tea.Model, tea.Cmd) 
 	m.statusMessage = "previewing cache exclusion..."
 	m.toastMessage = m.statusMessage
 	return m, m.runCacheExclusionPreview(request)
+}
+
+func (m Model) startCachePurgePreview(fields []string) (tea.Model, tea.Cmd) {
+	if m.cachePurgeStore == nil {
+		m.statusMessage = "cache purge unavailable"
+		m.toastMessage = m.statusMessage
+		return m, nil
+	}
+	if m.loadingCachePurge {
+		m.statusMessage = "cache purge already running"
+		m.toastMessage = m.statusMessage
+		return m, nil
+	}
+	request, err := parseCachePurgeRequest(fields)
+	if err != nil {
+		m.statusMessage = err.Error()
+		m.toastMessage = m.statusMessage
+		return m, nil
+	}
+	if request.Account == "" {
+		request.Account = m.mailbox.Account
+	}
+	m.loadingCachePurge = true
+	m.statusMessage = "planning cache purge..."
+	m.toastMessage = m.statusMessage
+	return m, m.runCachePurgePreview(request)
 }
 
 func cacheExclusionPreviewSummary(preview CacheExclusionPreview) string {
@@ -984,6 +1031,13 @@ func (m Model) runCacheExclusionConfirm(request CacheExclusionRequest) tea.Cmd {
 	return func() tea.Msg {
 		result, err := m.cacheExclusionStore.ConfirmCacheExclusion(request)
 		return cacheExclusionConfirmDoneMsg{Result: result, Err: err}
+	}
+}
+
+func (m Model) runCachePurgePreview(request CachePurgeRequest) tea.Cmd {
+	return func() tea.Msg {
+		preview, err := m.cachePurgeStore.PlanCachePurge(request)
+		return cachePurgePreviewDoneMsg{Preview: preview, Err: err}
 	}
 }
 

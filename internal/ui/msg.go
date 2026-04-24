@@ -69,3 +69,8 @@ type cacheExclusionConfirmDoneMsg struct {
 	Result CacheExclusionResult
 	Err    error
 }
+
+type cachePurgePreviewDoneMsg struct {
+	Preview CachePurgePreview
+	Err     error
+}

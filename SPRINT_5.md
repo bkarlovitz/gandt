@@ -49,7 +49,7 @@ Grounded in `prd.md` sections 7, 10, 11, 16, 17, 18, 20, and milestone M2.
   - Show a clear success or cancel state.
   - Validation: `go test ./internal/ui/...` covers valid command, invalid match type, preview, confirm, and cancel.
 
-- [ ] **Task 5.8**: Implement purge planning and dry run
+- [x] **Task 5.8**: Implement purge planning and dry run
   - Support `:cache-purge --account --label --older-than --from --dry-run`.
   - Return counts and estimated bytes before any destructive operation.
   - Do not remove account registry or keyring tokens in cache purge flows.
