@@ -78,3 +78,26 @@ Grounded in `prd.md` sections 7, 8, 9, 10, 11, 16, 19, 20, and milestone M1.
   - Confirm `accounts`, `labels`, `sync_policies`, `messages_fts`, and `message_annotations` exist.
   - Confirm client credentials and OAuth tokens are absent from config files and SQLite.
   - Validation: manual QA records the exact `sqlite3` inspection commands and expected row counts.
+
+## M1 QA Notes
+
+- Date: 2026-04-23
+- Status: blocked; Task 2.12 is not marked complete.
+- Blocker: the workspace does not contain a real test Gmail account or Google Desktop OAuth client credentials, and completing OAuth requires human account authorization in a browser.
+- Prepared inspection commands once a test account is authorized:
+
+```sh
+sqlite3 "$XDG_DATA_HOME/gandt/cache.db" '
+.tables
+SELECT COUNT(*) AS accounts_count FROM accounts;
+SELECT COUNT(*) AS labels_count FROM labels;
+SELECT COUNT(*) AS sync_policies_count FROM sync_policies;
+SELECT name FROM sqlite_master WHERE name IN ("messages_fts", "message_annotations") ORDER BY name;
+SELECT COUNT(*) AS sqlite_secret_hits
+FROM (
+  SELECT sql FROM sqlite_master WHERE sql IS NOT NULL
+) WHERE sql LIKE "%client_secret%" OR sql LIKE "%access_token%" OR sql LIKE "%refresh_token%";
+'
+```
+
+Expected after one successful real-account bootstrap: `accounts_count = 1`, `labels_count` equals the authorized mailbox label count, `sync_policies_count = 8`, both `message_annotations` and `messages_fts` are listed, and `sqlite_secret_hits = 0`.
