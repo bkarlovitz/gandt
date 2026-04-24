@@ -95,6 +95,9 @@ func TestSecretStoreErrorsAreRedacted(t *testing.T) {
 	if !errors.Is(err, fake.setErr) {
 		t.Fatalf("error does not unwrap backend error")
 	}
+	if !errors.Is(err, ErrKeyringUnavailable) {
+		t.Fatalf("error does not mark keyring unavailable")
+	}
 
 	err = store.StoreOAuthToken("account-1", &oauth2.Token{AccessToken: "access-token"})
 	if err == nil {

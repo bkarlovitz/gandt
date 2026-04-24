@@ -15,6 +15,8 @@ import (
 
 const DatabaseFileName = "cache.db"
 
+var ErrCorrupt = errors.New("cache database corrupt")
+
 // Path returns the SQLite cache location under the configured data directory.
 func Path(paths config.Paths) (string, error) {
 	if paths.DataDir == "" {

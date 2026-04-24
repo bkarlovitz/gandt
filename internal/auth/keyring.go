@@ -16,7 +16,10 @@ const (
 	oauthTokenKeyPrefix  = "oauth-token:"
 )
 
-var ErrSecretNotFound = errors.New("secret not found")
+var (
+	ErrSecretNotFound     = errors.New("secret not found")
+	ErrKeyringUnavailable = errors.New("keyring inaccessible")
+)
 
 type ClientCredentials struct {
 	ClientID     string `json:"client_id"`
@@ -57,7 +60,7 @@ func (s SecretStore) StoreClientCredentials(credentials ClientCredentials) error
 		return redacted("encode client credentials", err)
 	}
 	if err := s.keyring.Set(KeyringService, clientCredentialsKey, string(payload)); err != nil {
-		return redacted("store client credentials", err)
+		return redactedKeyring("store client credentials", err)
 	}
 	return nil
 }
@@ -95,7 +98,7 @@ func (s SecretStore) StoreOAuthToken(accountID string, token *oauth2.Token) erro
 		return redacted("encode oauth token", err)
 	}
 	if err := s.keyring.Set(KeyringService, oauthTokenKey(accountID), string(payload)); err != nil {
-		return redacted("store oauth token", err)
+		return redactedKeyring("store oauth token", err)
 	}
 	return nil
 }
@@ -135,11 +138,15 @@ func mapSecretError(operation string, err error) error {
 	if errors.Is(err, keyring.ErrNotFound) {
 		return fmt.Errorf("%s: %w", operation, ErrSecretNotFound)
 	}
-	return redacted(operation, err)
+	return redactedKeyring(operation, err)
 }
 
 func redacted(operation string, err error) error {
 	return redactedError{operation: operation, err: err}
+}
+
+func redactedKeyring(operation string, err error) error {
+	return redacted(operation, errors.Join(ErrKeyringUnavailable, err))
 }
 
 type redactedError struct {

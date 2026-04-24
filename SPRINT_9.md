@@ -25,7 +25,7 @@ Grounded in `prd.md` sections 5, 12, 13.10, 14, 15, 16, 17, 18, 19, 20, 21 M6, 2
   - Keep help overlay generated from the active keymap.
   - Validation: `go test ./internal/config ./internal/ui` covers override success, conflicts, invalid keys, and help overlay output.
 
-- [ ] **Task 9.4**: Harden error screens and toasts
+- [x] **Task 9.4**: Harden error screens and toasts
   - Review every service error path for clear user-facing copy and local log detail.
   - Keep non-fatal errors as auto-dismissed toasts and fatal errors as recoverable screens where possible.
   - Ensure DB corruption, keychain inaccessible, OAuth revoked, rate-limited, and offline states are distinct.

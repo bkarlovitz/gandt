@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bkarlovitz/gandt/internal/auth"
+	"github.com/bkarlovitz/gandt/internal/cache"
 	"github.com/bkarlovitz/gandt/internal/compose"
 	"github.com/bkarlovitz/gandt/internal/config"
 	"github.com/bkarlovitz/gandt/internal/gmail"
@@ -398,12 +400,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case threadLoadDoneMsg:
 		m.loadingThreadID = ""
 		if msg.Err != nil {
-			if IsOfflineError(msg.Err) {
+			if IsOfflineError(msg.Err) || errors.Is(msg.Err, gmail.ErrUnavailable) {
 				m.offline = true
-				m.statusMessage = "offline: cached mail available"
+				m.statusMessage = userFacingError(msg.Err, m.mailbox.Account)
 				return m, nil
 			}
-			m.statusMessage = "load thread failed: " + msg.Err.Error()
+			m.statusMessage = "load thread failed: " + userFacingError(msg.Err, m.mailbox.Account)
 			return m, nil
 		}
 		m.applyThreadLoadResult(msg.Result)
@@ -438,9 +440,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if errors.Is(msg.Err, context.Canceled) {
 				return m, nil
 			}
-			m.search.Error = msg.Err.Error()
+			m.search.Error = userFacingError(msg.Err, msg.Request.Account)
 			m.search.Results = nil
-			m.statusMessage = "search failed: " + msg.Err.Error()
+			m.statusMessage = "search failed: " + m.search.Error
 			return m, nil
 		}
 		m.search.Error = ""
@@ -1876,20 +1878,41 @@ func (m *Model) applyStatusOrError(summary string, err error, account string) {
 		}
 		return
 	}
-	if IsFatalError(err) {
-		m.fatalError = err.Error()
+	if IsFatalError(err) || errors.Is(err, cache.ErrCorrupt) {
+		m.fatalError = userFacingError(err, account)
 		return
 	}
-	if errors.Is(err, gmail.ErrUnauthorized) {
-		m.statusMessage = "re-authenticate " + firstNonEmpty(account, m.mailbox.Account)
+	if IsOfflineError(err) || errors.Is(err, gmail.ErrUnavailable) {
+		m.offline = true
+		m.statusMessage = userFacingError(err, account)
 		m.toastMessage = m.statusMessage
 		return
 	}
 	if summary == "" {
-		summary = err.Error()
+		summary = userFacingError(err, account)
 	}
 	m.statusMessage = summary
 	m.toastMessage = summary
+}
+
+func userFacingError(err error, account string) string {
+	account = firstNonEmpty(account, "account")
+	switch {
+	case errors.Is(err, cache.ErrCorrupt):
+		return "cache database corrupt; quit and inspect or remove cache.db"
+	case errors.Is(err, auth.ErrKeyringUnavailable):
+		return "keychain inaccessible; unlock the OS keychain and retry"
+	case errors.Is(err, gmail.ErrUnauthorized):
+		return "OAuth revoked for " + account + "; re-authenticate the account"
+	case errors.Is(err, gmail.ErrRateLimited):
+		return "Gmail rate limited requests; wait and retry"
+	case IsOfflineError(err), errors.Is(err, gmail.ErrUnavailable):
+		return "offline: cached mail available"
+	case errors.Is(err, auth.ErrSecretNotFound):
+		return "OAuth credentials missing; run :add-account"
+	default:
+		return err.Error()
+	}
 }
 
 func (m Model) startRefresh(kind RefreshKind) (tea.Model, tea.Cmd) {
