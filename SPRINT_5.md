@@ -37,7 +37,7 @@ Grounded in `prd.md` sections 7, 10, 11, 16, 17, 18, 20, and milestone M2.
   - Reload policy safely when config is changed between launches.
   - Validation: `go test ./internal/config ./internal/sync` covers precedence and relaunch behavior.
 
-- [ ] **Task 5.6**: Implement cache exclusions
+- [x] **Task 5.6**: Implement cache exclusions
   - Add commands and services for sender, domain, and label exclusions.
   - Ensure sync fetches excluded message metadata transiently only where needed and never writes excluded bodies.
   - Purge already-cached rows that newly match an exclusion after user confirmation.

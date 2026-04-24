@@ -181,6 +181,41 @@ func TestBackfillerQueuesBodiesByPolicyDepthAndExclusion(t *testing.T) {
 	}
 }
 
+func TestBackfillerSkipsSenderExclusionWithoutPersistingBody(t *testing.T) {
+	ctx := context.Background()
+	db := migratedSyncTestDB(t)
+	account := seedSyncAccount(t, db)
+	seedSyncLabels(t, db, account.ID, "INBOX")
+	if err := cache.NewCacheExclusionRepository(db).Upsert(ctx, cache.CacheExclusion{
+		AccountID:  account.ID,
+		MatchType:  "sender",
+		MatchValue: "sensitive@example.com",
+		CreatedAt:  time.Now().UTC(),
+	}); err != nil {
+		t.Fatalf("upsert sender exclusion: %v", err)
+	}
+
+	client := newFakeMessageReader()
+	client.pages["INBOX"] = []gmail.ListMessagesPage{{Messages: []gmail.MessageRef{{ID: "sensitive-msg", ThreadID: "thread-sensitive"}}}}
+	client.metadata["sensitive-msg"] = gmail.Message{
+		ID:       "sensitive-msg",
+		ThreadID: "thread-sensitive",
+		LabelIDs: []string{"INBOX"},
+		Headers:  []gmail.MessageHeader{{Name: "From", Value: "Sensitive <sensitive@example.com>"}},
+	}
+
+	result, err := NewBackfiller(db, config.Default(), client).Backfill(ctx, account)
+	if err != nil {
+		t.Fatalf("backfill: %v", err)
+	}
+	if result.ExcludedCount != 1 || len(result.BodyQueue) != 0 || len(result.Messages) != 0 {
+		t.Fatalf("result = %#v, want excluded message with no body queue or persisted metadata", result)
+	}
+	if _, err := cache.NewMessageRepository(db).Get(ctx, account.ID, "sensitive-msg"); !errors.Is(err, cache.ErrMessageNotFound) {
+		t.Fatalf("excluded message lookup error = %v, want ErrMessageNotFound", err)
+	}
+}
+
 func TestBackfillerPersistsParsedGmailMetadata(t *testing.T) {
 	ctx := context.Background()
 	db := migratedSyncTestDB(t)
