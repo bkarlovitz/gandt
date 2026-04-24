@@ -67,7 +67,7 @@ Grounded in `prd.md` sections 7, 10, 11, 16, 17, 18, 20, and milestone M2.
   - Respect exclusions and attachment cleanup.
   - Validation: `go test ./internal/sync ./internal/cache` covers single-label, multi-label, no-limit, and startup sweep scenarios.
 
-- [ ] **Task 5.11**: Add `:cache-wipe` with two-step confirmation
+- [x] **Task 5.11**: Add `:cache-wipe` with two-step confirmation
   - Delete the SQLite cache and attachment files after explicit confirmation.
   - Preserve OAuth tokens and client credentials unless the user removes accounts separately.
   - Recreate schema cleanly on next startup.

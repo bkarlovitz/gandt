@@ -83,3 +83,8 @@ type cachePurgeExecuteDoneMsg struct {
 type cacheCompactDoneMsg struct {
 	Err error
 }
+
+type cacheWipeDoneMsg struct {
+	Result CacheWipeResult
+	Err    error
+}

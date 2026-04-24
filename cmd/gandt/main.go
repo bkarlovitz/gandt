@@ -67,6 +67,7 @@ func main() {
 		ui.WithCachePolicyStore(buildCachePolicyStore(paths, cfg)),
 		ui.WithCacheExclusionStore(buildCacheExclusionStore(paths)),
 		ui.WithCachePurgeStore(buildCachePurgeStore(paths)),
+		ui.WithCacheWipeStore(buildCacheWipeStore(paths)),
 		ui.WithSyncCoordinator(buildSyncCoordinator(paths, cfg)),
 	}
 	if mailbox, ok := loadInitialMailbox(paths, cfg); ok {
@@ -573,6 +574,20 @@ func uiCachePurgePreview(request ui.CachePurgeRequest, plan cache.CachePurgePlan
 		AttachmentCount: plan.AttachmentCount,
 		EstimatedBytes:  plan.EstimatedBytes,
 	}
+}
+
+func buildCacheWipeStore(paths config.Paths) ui.CacheWipeStore {
+	return ui.CacheWipeStoreFunc(func() (ui.CacheWipeResult, error) {
+		result, err := cache.Wipe(context.Background(), paths)
+		if err != nil {
+			return ui.CacheWipeResult{}, err
+		}
+		return ui.CacheWipeResult{
+			DatabaseFilesRemoved:   result.DatabaseFilesRemoved,
+			AttachmentFilesRemoved: result.AttachmentFilesRemoved,
+			AttachmentDeleteErrors: result.AttachmentDeleteErrors,
+		}, nil
+	})
 }
 
 func runOneAccountRefresh(ctx context.Context, paths config.Paths, cfg config.Config, request ui.RefreshRequest) (gandtsync.AccountSyncResult, error) {

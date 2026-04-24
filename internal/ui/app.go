@@ -80,6 +80,9 @@ type Model struct {
 	cachePurgeStore       CachePurgeStore
 	loadingCachePurge     bool
 	pendingCachePurge     *CachePurgePreview
+	cacheWipeStore        CacheWipeStore
+	pendingCacheWipeStep  int
+	loadingCacheWipe      bool
 	nextActionID          int
 	pendingActions        map[int]triageSnapshot
 	undo                  *undoState
@@ -183,6 +186,14 @@ func WithCachePurgeStore(store CachePurgeStore) Option {
 	return func(m *Model) {
 		if store != nil {
 			m.cachePurgeStore = store
+		}
+	}
+}
+
+func WithCacheWipeStore(store CacheWipeStore) Option {
+	return func(m *Model) {
+		if store != nil {
+			m.cacheWipeStore = store
 		}
 	}
 }
@@ -408,6 +419,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.statusMessage = "cache compact complete"
 		m.toastMessage = m.statusMessage
+	case cacheWipeDoneMsg:
+		m.loadingCacheWipe = false
+		m.pendingCacheWipeStep = 0
+		if msg.Err != nil {
+			m.statusMessage = "cache wipe failed: " + msg.Err.Error()
+			m.toastMessage = m.statusMessage
+			return m, nil
+		}
+		m.statusMessage = fmt.Sprintf("cache wipe complete: removed %d database files, %d attachment files", msg.Result.DatabaseFilesRemoved, msg.Result.AttachmentFilesRemoved)
+		if len(msg.Result.AttachmentDeleteErrors) > 0 {
+			m.statusMessage += fmt.Sprintf("; %d attachment cleanup errors", len(msg.Result.AttachmentDeleteErrors))
+		}
+		m.toastMessage = m.statusMessage
 	case SyncUpdateMsg:
 		if msg.Stopped {
 			return m, nil
@@ -480,6 +504,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	if m.mode == ModeNormal && m.pendingCachePurge != nil {
 		return m.handleCachePurgeConfirmation(key)
+	}
+	if m.mode == ModeNormal && m.pendingCacheWipeStep > 0 {
+		return m.handleCacheWipeConfirmation(key)
 	}
 
 	switch m.mode {
@@ -755,6 +782,31 @@ func (m Model) handleCachePurgeConfirmation(key string) (tea.Model, tea.Cmd) {
 	}
 }
 
+func (m Model) handleCacheWipeConfirmation(key string) (tea.Model, tea.Cmd) {
+	switch key {
+	case "y", "Y":
+		if m.pendingCacheWipeStep == 1 {
+			m.pendingCacheWipeStep = 2
+			m.statusMessage = "cache wipe confirmation 2/2: press y again to delete local cache"
+			m.toastMessage = m.statusMessage
+			return m, nil
+		}
+		m.loadingCacheWipe = true
+		m.statusMessage = "wiping cache..."
+		m.toastMessage = m.statusMessage
+		return m, m.runCacheWipe()
+	case "n", "N", "esc":
+		m.pendingCacheWipeStep = 0
+		m.statusMessage = "cache wipe canceled"
+		m.toastMessage = m.statusMessage
+		return m, nil
+	default:
+		m.statusMessage = "confirm cache wipe with y or n"
+		m.toastMessage = m.statusMessage
+		return m, nil
+	}
+}
+
 func (m Model) submitCommand() (tea.Model, tea.Cmd) {
 	command := strings.TrimSpace(strings.TrimPrefix(m.commandInput, ":"))
 	m.mode = ModeNormal
@@ -828,6 +880,8 @@ func (m Model) submitCommand() (tea.Model, tea.Cmd) {
 		return m.startCachePurgePreview(fields)
 	case "cache-compact":
 		return m.startCacheCompact()
+	case "cache-wipe":
+		return m.startCacheWipe()
 	case "quit", "q":
 		m.stopSync()
 		m.quitting = true
@@ -910,6 +964,23 @@ func (m Model) startCacheCompact() (tea.Model, tea.Cmd) {
 	m.statusMessage = "compacting cache..."
 	m.toastMessage = m.statusMessage
 	return m, m.runCacheCompact()
+}
+
+func (m Model) startCacheWipe() (tea.Model, tea.Cmd) {
+	if m.cacheWipeStore == nil {
+		m.statusMessage = "cache wipe unavailable"
+		m.toastMessage = m.statusMessage
+		return m, nil
+	}
+	if m.loadingCacheWipe {
+		m.statusMessage = "cache wipe already running"
+		m.toastMessage = m.statusMessage
+		return m, nil
+	}
+	m.pendingCacheWipeStep = 1
+	m.statusMessage = "cache wipe confirmation 1/2: press y to continue"
+	m.toastMessage = m.statusMessage
+	return m, nil
 }
 
 func cacheExclusionPreviewSummary(preview CacheExclusionPreview) string {
@@ -1115,6 +1186,13 @@ func (m Model) runCachePurgeExecute(request CachePurgeRequest) tea.Cmd {
 func (m Model) runCacheCompact() tea.Cmd {
 	return func() tea.Msg {
 		return cacheCompactDoneMsg{Err: m.cachePurgeStore.CompactCache()}
+	}
+}
+
+func (m Model) runCacheWipe() tea.Cmd {
+	return func() tea.Msg {
+		result, err := m.cacheWipeStore.WipeCache()
+		return cacheWipeDoneMsg{Result: result, Err: err}
 	}
 }
 
