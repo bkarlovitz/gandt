@@ -214,13 +214,17 @@ func (m Model) renderMailbox() string {
 		header = fmt.Sprintf("%s | %s", header, m.statusMessage)
 	}
 
-	return trimRightLines(strings.Join([]string{
+	lines := []string{
 		fit(header, width),
 		strings.Repeat("-", width),
 		body,
 		strings.Repeat("-", width),
-		fit(m.keys.Footer(), width),
-	}, "\n"))
+	}
+	if m.toastMessage != "" {
+		lines = append(lines, fit(m.toastMessage, width), strings.Repeat("-", width))
+	}
+	lines = append(lines, fit(m.keys.Footer(), width))
+	return trimRightLines(strings.Join(lines, "\n"))
 }
 
 func (m Model) mailboxHeader() string {

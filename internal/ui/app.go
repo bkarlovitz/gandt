@@ -54,6 +54,9 @@ type Model struct {
 	replaceCreds          CredentialReplacer
 	threadLoader          ThreadLoader
 	loadingThreadID       string
+	manualRefresher       ManualRefresher
+	refreshingAccount     string
+	toastMessage          string
 	syncCoordinator       SyncCoordinator
 	syncContext           context.Context
 	syncCancel            context.CancelFunc
@@ -88,6 +91,14 @@ func WithThreadLoader(loader ThreadLoader) Option {
 	return func(m *Model) {
 		if loader != nil {
 			m.threadLoader = loader
+		}
+	}
+}
+
+func WithManualRefresher(refresher ManualRefresher) Option {
+	return func(m *Model) {
+		if refresher != nil {
+			m.manualRefresher = refresher
 		}
 	}
 }
@@ -161,6 +172,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.applyThreadLoadResult(msg.Result)
 		m.statusMessage = "loaded thread"
+	case refreshDoneMsg:
+		m.refreshingAccount = ""
+		if msg.Err != nil {
+			m.statusMessage = "sync failed: " + msg.Err.Error()
+			m.toastMessage = m.statusMessage
+			return m, nil
+		}
+		summary := msg.Result.Summary
+		if summary == "" {
+			summary = refreshDoneSummary(msg.Request)
+		}
+		m.statusMessage = summary
+		m.toastMessage = summary
 	case SyncUpdateMsg:
 		if msg.Stopped {
 			return m, nil
@@ -285,8 +309,12 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.nextPane()
 	case "/":
 		m.mode = ModeSearch
-	case "c", "r", "R", "f":
+	case "c", "f":
 		m.mode = ModeCompose
+	case "r":
+		return m.startRefresh(RefreshDelta)
+	case "R":
+		return m.startRefresh(RefreshRelistLabel)
 	case ":":
 		m.mode = ModeCommand
 		m.commandInput = ":"
@@ -358,6 +386,8 @@ func (m Model) submitCommand() (tea.Model, tea.Cmd) {
 		m.replacingCreds = true
 		m.statusMessage = "replacing credentials..."
 		return m, m.runReplaceCredentials()
+	case "sync-all":
+		return m.startRefresh(RefreshAll)
 	case "quit", "q":
 		m.stopSync()
 		m.quitting = true
@@ -393,6 +423,13 @@ func (m Model) runLoadThread(message Message) tea.Cmd {
 	}
 }
 
+func (m Model) runRefresh(request RefreshRequest) tea.Cmd {
+	return func() tea.Msg {
+		result, err := m.manualRefresher.Refresh(request)
+		return refreshDoneMsg{Request: request, Result: result, Err: err}
+	}
+}
+
 func (m Model) runSyncCycle(active bool) tea.Cmd {
 	if m.syncCoordinator == nil {
 		return nil
@@ -410,6 +447,65 @@ func (m Model) runSyncCycle(active bool) tea.Cmd {
 			Stopped:   update.Stopped,
 			Fallback:  update.Fallback,
 		}
+	}
+}
+
+func (m Model) startRefresh(kind RefreshKind) (tea.Model, tea.Cmd) {
+	if m.manualRefresher == nil {
+		m.statusMessage = "sync unavailable"
+		m.toastMessage = m.statusMessage
+		return m, nil
+	}
+	request := m.refreshRequest(kind)
+	if request.Account == "" {
+		m.statusMessage = "sync unavailable: no account"
+		m.toastMessage = m.statusMessage
+		return m, nil
+	}
+	if m.refreshingAccount == request.Account {
+		m.statusMessage = "sync already running for " + request.Account
+		m.toastMessage = m.statusMessage
+		return m, nil
+	}
+	m.refreshingAccount = request.Account
+	m.statusMessage = refreshProgressSummary(request)
+	m.toastMessage = m.statusMessage
+	return m, m.runRefresh(request)
+}
+
+func (m Model) refreshRequest(kind RefreshKind) RefreshRequest {
+	request := RefreshRequest{
+		Kind:    kind,
+		Account: m.mailbox.Account,
+	}
+	if len(m.mailbox.Labels) == 0 {
+		return request
+	}
+	label := m.mailbox.Labels[clamp(m.selectedLabel, 0, len(m.mailbox.Labels)-1)]
+	request.LabelID = labelKey(label)
+	request.LabelName = label.Name
+	return request
+}
+
+func refreshProgressSummary(request RefreshRequest) string {
+	switch request.Kind {
+	case RefreshRelistLabel:
+		return "refreshing " + firstNonEmpty(request.LabelName, request.LabelID, "label") + "..."
+	case RefreshAll:
+		return "syncing all accounts..."
+	default:
+		return "syncing..."
+	}
+}
+
+func refreshDoneSummary(request RefreshRequest) string {
+	switch request.Kind {
+	case RefreshRelistLabel:
+		return "refreshed " + firstNonEmpty(request.LabelName, request.LabelID, "label")
+	case RefreshAll:
+		return "sync-all complete"
+	default:
+		return "sync complete"
 	}
 }
 
@@ -603,4 +699,13 @@ func clamp(value, min, max int) int {
 		return max
 	}
 	return value
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }

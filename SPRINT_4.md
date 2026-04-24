@@ -25,7 +25,7 @@ Grounded in `prd.md` sections 9, 10, 13.6, 17, 18, 20, and milestone M2.
   - Avoid network calls on the Bubble Tea update path.
   - Validation: `go test ./internal/sync ./internal/ui` uses fake clocks and fake Gmail services to verify active, idle, and stopped behavior.
 
-- [ ] **Task 4.4**: Implement manual refresh commands
+- [x] **Task 4.4**: Implement manual refresh commands
   - Add `r` for active-account delta sync, `R` for full relist of the current label, and `:sync-all` as a no-op or one-account operation until multi-account support lands.
   - Show sync progress and errors in the status bar and toast area.
   - Debounce repeated refresh keys to avoid overlapping syncs for the same account.

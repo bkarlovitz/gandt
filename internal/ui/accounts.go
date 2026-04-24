@@ -52,6 +52,35 @@ func (fn ThreadLoaderFunc) LoadThread(request ThreadLoadRequest) (ThreadLoadResu
 	return fn(request)
 }
 
+type RefreshKind string
+
+const (
+	RefreshDelta       RefreshKind = "delta"
+	RefreshRelistLabel RefreshKind = "relist-label"
+	RefreshAll         RefreshKind = "all"
+)
+
+type RefreshRequest struct {
+	Kind      RefreshKind
+	Account   string
+	LabelID   string
+	LabelName string
+}
+
+type RefreshResult struct {
+	Summary string
+}
+
+type ManualRefresher interface {
+	Refresh(RefreshRequest) (RefreshResult, error)
+}
+
+type ManualRefresherFunc func(RefreshRequest) (RefreshResult, error)
+
+func (fn ManualRefresherFunc) Refresh(request RefreshRequest) (RefreshResult, error) {
+	return fn(request)
+}
+
 type OfflineError struct {
 	Err error
 }

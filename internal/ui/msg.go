@@ -26,3 +26,9 @@ type threadLoadDoneMsg struct {
 	Result ThreadLoadResult
 	Err    error
 }
+
+type refreshDoneMsg struct {
+	Request RefreshRequest
+	Result  RefreshResult
+	Err     error
+}

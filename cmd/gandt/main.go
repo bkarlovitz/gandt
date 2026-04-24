@@ -60,6 +60,7 @@ func main() {
 		ui.WithAccountAdder(buildAccountAdder(paths, cfg)),
 		ui.WithCredentialReplacer(buildCredentialReplacer()),
 		ui.WithThreadLoader(buildThreadLoader(paths, cfg)),
+		ui.WithManualRefresher(buildManualRefresher(paths, cfg)),
 		ui.WithSyncCoordinator(buildSyncCoordinator(paths, cfg)),
 	}
 	if mailbox, ok := loadInitialMailbox(paths); ok {
@@ -176,6 +177,62 @@ func buildSyncCoordinator(paths config.Paths, cfg config.Config) ui.SyncCoordina
 		}
 		return gandtsync.NewDeltaSynchronizer(db, cfg, gmailClient).Sync(ctx, account)
 	}))
+}
+
+func buildManualRefresher(paths config.Paths, cfg config.Config) ui.ManualRefresher {
+	return ui.ManualRefresherFunc(func(request ui.RefreshRequest) (ui.RefreshResult, error) {
+		ctx := context.Background()
+		result, err := runOneAccountRefresh(ctx, paths, cfg, request)
+		if err != nil {
+			return ui.RefreshResult{}, err
+		}
+		return ui.RefreshResult{Summary: result.Status}, nil
+	})
+}
+
+func runOneAccountRefresh(ctx context.Context, paths config.Paths, cfg config.Config, request ui.RefreshRequest) (gandtsync.AccountSyncResult, error) {
+	db, err := cache.Open(ctx, paths)
+	if err != nil {
+		return gandtsync.AccountSyncResult{}, err
+	}
+	defer db.Close()
+	if err := cache.Migrate(ctx, db); err != nil {
+		return gandtsync.AccountSyncResult{}, err
+	}
+
+	accounts, err := cache.NewAccountRepository(db).List(ctx)
+	if err != nil {
+		return gandtsync.AccountSyncResult{}, err
+	}
+	if len(accounts) == 0 {
+		return gandtsync.AccountSyncResult{Status: "sync skipped: no accounts configured"}, nil
+	}
+	account := accounts[0]
+	if request.Account != "" {
+		for _, candidate := range accounts {
+			if candidate.Email == request.Account {
+				account = candidate
+				break
+			}
+		}
+	}
+	gmailClient, err := gmailClientForAccount(ctx, account.ID)
+	if err != nil {
+		return gandtsync.AccountSyncResult{}, err
+	}
+
+	if request.Kind == ui.RefreshRelistLabel {
+		backfiller := gandtsync.NewBackfiller(db, cfg, gmailClient)
+		backfill, err := backfiller.Backfill(ctx, account)
+		if err != nil {
+			return gandtsync.AccountSyncResult{}, err
+		}
+		return gandtsync.AccountSyncResult{
+			Backfill: backfill,
+			Status:   fmt.Sprintf("refreshed %s", firstNonEmptyString(request.LabelName, request.LabelID, "label")),
+		}, nil
+	}
+	return gandtsync.NewDeltaSynchronizer(db, cfg, gmailClient).Sync(ctx, account)
 }
 
 func loadInitialMailbox(paths config.Paths) (ui.Mailbox, bool) {
