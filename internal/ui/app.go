@@ -799,6 +799,42 @@ func (m *Model) enterSearchMode() {
 }
 
 func (m Model) handleSearchKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if len(m.search.Results) > 0 {
+		switch msg.String() {
+		case "j", "down":
+			m.moveSelection(1)
+			return m, nil
+		case "k", "up":
+			m.moveSelection(-1)
+			return m, nil
+		case "g":
+			m.jumpSelection(false)
+			return m, nil
+		case "G":
+			m.jumpSelection(true)
+			return m, nil
+		case "enter":
+			m.readerOpen = true
+			m.focus = PaneReader
+			return m, m.loadSelectedThreadIfNeeded()
+		case "J":
+			m.moveThreadMessage(1)
+			return m, nil
+		case "K":
+			m.moveThreadMessage(-1)
+			return m, nil
+		case "N":
+			m.moveSelection(1)
+			m.readerOpen = true
+			m.focus = PaneReader
+			return m, m.loadSelectedThreadIfNeeded()
+		case "P":
+			m.moveSelection(-1)
+			m.readerOpen = true
+			m.focus = PaneReader
+			return m, m.loadSelectedThreadIfNeeded()
+		}
+	}
 	switch msg.Type {
 	case tea.KeyEsc:
 		m.exitSearchMode("search canceled")
@@ -2231,10 +2267,11 @@ func (m *Model) stopSync() {
 }
 
 func (m *Model) loadSelectedThreadIfNeeded() tea.Cmd {
-	if m.threadLoader == nil || len(m.mailbox.Messages) == 0 {
+	messages := m.currentMessages()
+	if m.threadLoader == nil || len(messages) == 0 {
 		return nil
 	}
-	message := m.mailbox.Messages[m.selectedMessage]
+	message := messages[clamp(m.selectedMessage, 0, len(messages)-1)]
 	if messageHasReadableBody(message) || message.ThreadID == "" || m.loadingThreadID == message.ThreadID {
 		return nil
 	}
@@ -2262,6 +2299,7 @@ func (m *Model) applyThreadLoadResult(result ThreadLoadResult) {
 		update(messages)
 		m.mailbox.MessagesByLabel[labelID] = messages
 	}
+	update(m.search.Results)
 	if index := threadMessageIndex(result.ThreadMessages, result.MessageID); index >= 0 {
 		m.selectedThreadMessage = index
 	}
@@ -2301,10 +2339,15 @@ func threadMessageIndex(messages []ThreadMessage, id string) int {
 func (m *Model) moveSelection(delta int) {
 	switch m.focus {
 	case PaneLabels:
+		if m.mode == ModeSearch {
+			m.selectedMessage = clamp(m.selectedMessage+delta, 0, len(m.search.Results)-1)
+			m.selectedThreadMessage = 0
+			return
+		}
 		m.selectedLabel = clamp(m.selectedLabel+delta, 0, len(m.mailbox.Labels)-1)
 		m.updateSelectedLabelMessages()
 	default:
-		m.selectedMessage = clamp(m.selectedMessage+delta, 0, len(m.mailbox.Messages)-1)
+		m.selectedMessage = clamp(m.selectedMessage+delta, 0, len(m.currentMessages())-1)
 		m.selectedThreadMessage = 0
 	}
 }
@@ -2314,32 +2357,49 @@ func (m *Model) jumpSelection(bottom bool) {
 	if bottom {
 		switch m.focus {
 		case PaneLabels:
-			target = len(m.mailbox.Labels) - 1
+			if m.mode == ModeSearch {
+				target = len(m.search.Results) - 1
+			} else {
+				target = len(m.mailbox.Labels) - 1
+			}
 		default:
-			target = len(m.mailbox.Messages) - 1
+			target = len(m.currentMessages()) - 1
 		}
 	}
 
 	switch m.focus {
 	case PaneLabels:
+		if m.mode == ModeSearch {
+			m.selectedMessage = clamp(target, 0, len(m.search.Results)-1)
+			m.selectedThreadMessage = 0
+			return
+		}
 		m.selectedLabel = clamp(target, 0, len(m.mailbox.Labels)-1)
 		m.updateSelectedLabelMessages()
 	default:
-		m.selectedMessage = clamp(target, 0, len(m.mailbox.Messages)-1)
+		m.selectedMessage = clamp(target, 0, len(m.currentMessages())-1)
 		m.selectedThreadMessage = 0
 	}
 }
 
 func (m *Model) moveThreadMessage(delta int) {
-	if len(m.mailbox.Messages) == 0 {
+	messages := m.currentMessages()
+	if len(messages) == 0 {
 		return
 	}
-	message := m.mailbox.Messages[m.selectedMessage]
+	message := messages[clamp(m.selectedMessage, 0, len(messages)-1)]
 	if len(message.ThreadMessages) == 0 {
 		m.statusMessage = "single-message thread"
 		return
 	}
 	m.selectedThreadMessage = clamp(m.selectedThreadMessage+delta, 0, len(message.ThreadMessages)-1)
+}
+
+func (m Model) currentMessages() []Message {
+	if m.mode == ModeSearch {
+		return m.search.Results
+	}
+	return m.mailbox.Messages
 }
 
 func (m *Model) toggleRenderMode() {

@@ -450,7 +450,8 @@ func labelKey(label Label) string {
 }
 
 func (m Model) renderReader(width, maxRows int) []string {
-	if len(m.mailbox.Messages) == 0 {
+	messages := m.currentMessages()
+	if len(messages) == 0 {
 		return limitLines([]string{
 			fit("Reader", width),
 			fit("", width),
@@ -458,7 +459,7 @@ func (m Model) renderReader(width, maxRows int) []string {
 		}, maxRows, width)
 	}
 
-	message := m.mailbox.Messages[m.selectedMessage]
+	message := messages[clamp(m.selectedMessage, 0, len(messages)-1)]
 	readerMessage := m.readerMessage(message)
 	lines := []string{
 		"Reader",

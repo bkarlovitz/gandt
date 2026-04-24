@@ -31,7 +31,7 @@ Grounded in `prd.md` sections 7, 9, 13.4, 15, 18, 20, and milestone M4.
   - Target under 100ms for typical cached searches.
   - Validation: `go test ./internal/cache/...` includes fixture searches and a benchmark for representative result sets.
 
-- [ ] **Task 7.5**: Render search results in the message list pane
+- [x] **Task 7.5**: Render search results in the message list pane
   - Show `search: <query> [online|offline]` header.
   - Reuse selection, open-thread, cache-state, unread, and attachment indicators from mailbox rows.
   - Preserve keyboard navigation and reader behavior from search results.
