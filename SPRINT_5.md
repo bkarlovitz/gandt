@@ -25,7 +25,7 @@ Grounded in `prd.md` sections 7, 10, 11, 16, 17, 18, 20, and milestone M2.
   - Recompute effective policy for labels after updates.
   - Validation: `go test ./internal/cache ./internal/sync` covers policy edits, invalid combinations, and effective policy changes.
 
-- [ ] **Task 5.4**: Build the `:cache-policy` table editor
+- [x] **Task 5.4**: Build the `:cache-policy` table editor
   - Show account-by-label policies with editable depth, retention, attachment rule, and attachment size.
   - Support cancel, save, and reset-to-default actions.
   - Trigger a sync decision refresh after saving policies.

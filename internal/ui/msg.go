@@ -44,3 +44,18 @@ type cacheDashboardDoneMsg struct {
 	Result CacheDashboard
 	Err    error
 }
+
+type cachePolicyLoadDoneMsg struct {
+	Result CachePolicyTable
+	Err    error
+}
+
+type cachePolicySaveDoneMsg struct {
+	Row CachePolicyRow
+	Err error
+}
+
+type cachePolicyResetDoneMsg struct {
+	Row CachePolicyRow
+	Err error
+}

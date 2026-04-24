@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -68,6 +69,67 @@ func TestCachedThreadLoadMissesWhenSelectedBodyIsMissing(t *testing.T) {
 	if ok {
 		t.Fatalf("cache load hit for selected metadata-only message")
 	}
+}
+
+func TestCachePolicyStorePersistsRows(t *testing.T) {
+	ctx := context.Background()
+	paths := config.Paths{DataDir: t.TempDir()}
+	db, err := cache.Open(ctx, paths)
+	if err != nil {
+		t.Fatalf("open cache: %v", err)
+	}
+	defer db.Close()
+	if err := cache.Migrate(ctx, db); err != nil {
+		t.Fatalf("migrate cache: %v", err)
+	}
+	account := seedMainTestAccount(t, db)
+	store := buildCachePolicyStore(paths)
+
+	table, err := store.LoadCachePolicies()
+	if err != nil {
+		t.Fatalf("load cache policies: %v", err)
+	}
+	row, ok := findPolicyRow(table.Rows, "INBOX")
+	if !ok {
+		t.Fatalf("missing inbox policy row: %#v", table.Rows)
+	}
+	row.Depth = "full"
+	row.AttachmentRule = "all"
+	row.AttachmentMaxMB = nil
+	saved, err := store.SaveCachePolicy(row)
+	if err != nil {
+		t.Fatalf("save cache policy: %v", err)
+	}
+	if !saved.Explicit || saved.Depth != "full" || saved.AttachmentRule != "all" {
+		t.Fatalf("saved row = %#v, want explicit full/all", saved)
+	}
+	persisted, err := cache.NewSyncPolicyRepository(db).Get(ctx, account.ID, "INBOX")
+	if err != nil {
+		t.Fatalf("get persisted policy: %v", err)
+	}
+	if persisted.Depth != "full" || persisted.AttachmentRule != "all" {
+		t.Fatalf("persisted policy = %#v, want full/all", persisted)
+	}
+
+	reset, err := store.ResetCachePolicy(saved)
+	if err != nil {
+		t.Fatalf("reset cache policy: %v", err)
+	}
+	if reset.Explicit || reset.LabelID != "INBOX" {
+		t.Fatalf("reset row = %#v, want inherited label row", reset)
+	}
+	if _, err := cache.NewSyncPolicyRepository(db).Get(ctx, account.ID, "INBOX"); !errors.Is(err, cache.ErrSyncPolicyNotFound) {
+		t.Fatalf("get reset policy error = %v, want ErrSyncPolicyNotFound", err)
+	}
+}
+
+func findPolicyRow(rows []ui.CachePolicyRow, labelID string) (ui.CachePolicyRow, bool) {
+	for _, row := range rows {
+		if row.LabelID == labelID {
+			return row, true
+		}
+	}
+	return ui.CachePolicyRow{}, false
 }
 
 func migratedMainTestDB(t *testing.T) *sqlx.DB {

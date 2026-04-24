@@ -64,6 +64,7 @@ func main() {
 		ui.WithManualRefresher(buildManualRefresher(paths, cfg)),
 		ui.WithTriageActor(buildTriageActor(paths)),
 		ui.WithCacheDashboardLoader(buildCacheDashboardLoader(paths)),
+		ui.WithCachePolicyStore(buildCachePolicyStore(paths)),
 		ui.WithSyncCoordinator(buildSyncCoordinator(paths, cfg)),
 	}
 	if mailbox, ok := loadInitialMailbox(paths); ok {
@@ -272,6 +273,128 @@ func uiCacheDashboard(ctx context.Context, db *sqlx.DB, stats cache.CacheStats) 
 		dashboard.Rows = append(dashboard.Rows, ui.CacheDashboardRow{Table: row.Table, Rows: row.Rows})
 	}
 	return dashboard
+}
+
+func buildCachePolicyStore(paths config.Paths) ui.CachePolicyStore {
+	return ui.CachePolicyStoreFunc{
+		LoadFn: func() (ui.CachePolicyTable, error) {
+			ctx := context.Background()
+			db, err := cache.Open(ctx, paths)
+			if err != nil {
+				return ui.CachePolicyTable{}, err
+			}
+			defer db.Close()
+			if err := cache.Migrate(ctx, db); err != nil {
+				return ui.CachePolicyTable{}, err
+			}
+			return loadCachePolicyTable(ctx, db)
+		},
+		SaveFn: func(row ui.CachePolicyRow) (ui.CachePolicyRow, error) {
+			ctx := context.Background()
+			db, err := cache.Open(ctx, paths)
+			if err != nil {
+				return ui.CachePolicyRow{}, err
+			}
+			defer db.Close()
+			if err := cache.Migrate(ctx, db); err != nil {
+				return ui.CachePolicyRow{}, err
+			}
+			result, err := cache.NewSyncPolicyEditor(db).Save(ctx, cachePolicyFromRow(row))
+			if err != nil {
+				return ui.CachePolicyRow{}, err
+			}
+			return cachePolicyRowFromPolicy(row, result.Effective, true), nil
+		},
+		ResetFn: func(row ui.CachePolicyRow) (ui.CachePolicyRow, error) {
+			ctx := context.Background()
+			db, err := cache.Open(ctx, paths)
+			if err != nil {
+				return ui.CachePolicyRow{}, err
+			}
+			defer db.Close()
+			if err := cache.Migrate(ctx, db); err != nil {
+				return ui.CachePolicyRow{}, err
+			}
+			result, err := cache.NewSyncPolicyEditor(db).ResetToDefault(ctx, row.AccountID, row.LabelID)
+			if err != nil {
+				return ui.CachePolicyRow{}, err
+			}
+			return cachePolicyRowFromPolicy(row, result.Effective, false), nil
+		},
+	}
+}
+
+func loadCachePolicyTable(ctx context.Context, db *sqlx.DB) (ui.CachePolicyTable, error) {
+	accounts, err := cache.NewAccountRepository(db).List(ctx)
+	if err != nil {
+		return ui.CachePolicyTable{}, err
+	}
+	labels := cache.NewLabelRepository(db)
+	policies := cache.NewSyncPolicyRepository(db)
+
+	table := ui.CachePolicyTable{}
+	for _, account := range accounts {
+		accountLabels, err := labels.List(ctx, account.ID)
+		if err != nil {
+			return ui.CachePolicyTable{}, err
+		}
+		for _, label := range accountLabels {
+			effective, err := policies.EffectiveForLabel(ctx, account.ID, label.ID)
+			if err != nil {
+				return ui.CachePolicyTable{}, err
+			}
+			_, explicitErr := policies.Get(ctx, account.ID, label.ID)
+			explicit := explicitErr == nil
+			if explicitErr != nil && !errors.Is(explicitErr, cache.ErrSyncPolicyNotFound) {
+				return ui.CachePolicyTable{}, explicitErr
+			}
+			table.Rows = append(table.Rows, ui.CachePolicyRow{
+				AccountID:       account.ID,
+				AccountEmail:    account.Email,
+				LabelID:         label.ID,
+				LabelName:       label.Name,
+				Explicit:        explicit,
+				Depth:           effective.Depth,
+				RetentionDays:   cloneMainInt(effective.RetentionDays),
+				AttachmentRule:  effective.AttachmentRule,
+				AttachmentMaxMB: cloneMainInt(effective.AttachmentMaxMB),
+			})
+		}
+	}
+	return table, nil
+}
+
+func cachePolicyFromRow(row ui.CachePolicyRow) cache.SyncPolicy {
+	return cache.SyncPolicy{
+		AccountID:       row.AccountID,
+		LabelID:         row.LabelID,
+		Include:         row.Depth != "none",
+		Depth:           row.Depth,
+		RetentionDays:   cloneMainInt(row.RetentionDays),
+		AttachmentRule:  row.AttachmentRule,
+		AttachmentMaxMB: cloneMainInt(row.AttachmentMaxMB),
+	}
+}
+
+func cachePolicyRowFromPolicy(row ui.CachePolicyRow, policy cache.SyncPolicy, explicit bool) ui.CachePolicyRow {
+	row.Explicit = explicit
+	if policy.Depth != "" {
+		row.Depth = policy.Depth
+	}
+	if policy.AttachmentRule != "" {
+		row.AttachmentRule = policy.AttachmentRule
+	}
+	row.RetentionDays = cloneMainInt(policy.RetentionDays)
+	row.AttachmentMaxMB = cloneMainInt(policy.AttachmentMaxMB)
+	return row
+}
+
+func cloneMainInt(value *int) *int {
+	if value == nil {
+		return nil
+	}
+	out := *value
+	return &out
 }
 
 func runOneAccountRefresh(ctx context.Context, paths config.Paths, cfg config.Config, request ui.RefreshRequest) (gandtsync.AccountSyncResult, error) {

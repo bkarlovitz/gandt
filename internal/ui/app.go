@@ -24,6 +24,7 @@ const (
 	ModeHelp
 	ModeLabelPrompt
 	ModeCacheDashboard
+	ModeCachePolicyEditor
 )
 
 type Pane int
@@ -68,6 +69,11 @@ type Model struct {
 	cacheDashboardLoader  CacheDashboardLoader
 	loadingCacheDashboard bool
 	cacheDashboard        CacheDashboard
+	cachePolicyStore      CachePolicyStore
+	loadingCachePolicies  bool
+	savingCachePolicy     bool
+	cachePolicyTable      CachePolicyTable
+	selectedCachePolicy   int
 	nextActionID          int
 	pendingActions        map[int]triageSnapshot
 	undo                  *undoState
@@ -147,6 +153,14 @@ func WithCacheDashboardLoader(loader CacheDashboardLoader) Option {
 	return func(m *Model) {
 		if loader != nil {
 			m.cacheDashboardLoader = loader
+		}
+	}
+}
+
+func WithCachePolicyStore(store CachePolicyStore) Option {
+	return func(m *Model) {
+		if store != nil {
+			m.cachePolicyStore = store
 		}
 	}
 }
@@ -276,6 +290,47 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.cacheDashboard = msg.Result
 		m.mode = ModeCacheDashboard
 		m.statusMessage = "cache dashboard loaded"
+	case cachePolicyLoadDoneMsg:
+		m.loadingCachePolicies = false
+		if msg.Err != nil {
+			m.statusMessage = "cache policy failed: " + msg.Err.Error()
+			m.toastMessage = m.statusMessage
+			return m, nil
+		}
+		m.cachePolicyTable = msg.Result
+		m.selectedCachePolicy = clamp(m.selectedCachePolicy, 0, len(m.cachePolicyTable.Rows)-1)
+		m.mode = ModeCachePolicyEditor
+		m.statusMessage = "cache policy loaded"
+	case cachePolicySaveDoneMsg:
+		m.savingCachePolicy = false
+		if msg.Err != nil {
+			m.statusMessage = "cache policy save failed: " + msg.Err.Error()
+			m.toastMessage = m.statusMessage
+			return m, nil
+		}
+		if len(m.cachePolicyTable.Rows) > 0 {
+			m.cachePolicyTable.Rows[clamp(m.selectedCachePolicy, 0, len(m.cachePolicyTable.Rows)-1)] = msg.Row
+		}
+		m.statusMessage = "cache policy saved"
+		m.toastMessage = m.statusMessage
+		if m.manualRefresher != nil {
+			return m.startRefresh(RefreshAll)
+		}
+	case cachePolicyResetDoneMsg:
+		m.savingCachePolicy = false
+		if msg.Err != nil {
+			m.statusMessage = "cache policy reset failed: " + msg.Err.Error()
+			m.toastMessage = m.statusMessage
+			return m, nil
+		}
+		if len(m.cachePolicyTable.Rows) > 0 {
+			m.cachePolicyTable.Rows[clamp(m.selectedCachePolicy, 0, len(m.cachePolicyTable.Rows)-1)] = msg.Row
+		}
+		m.statusMessage = "cache policy reset"
+		m.toastMessage = m.statusMessage
+		if m.manualRefresher != nil {
+			return m.startRefresh(RefreshAll)
+		}
 	case SyncUpdateMsg:
 		if msg.Stopped {
 			return m, nil
@@ -304,6 +359,9 @@ func (m Model) View() string {
 	}
 	if m.mode == ModeCacheDashboard {
 		return m.renderCacheDashboard()
+	}
+	if m.mode == ModeCachePolicyEditor {
+		return m.renderCachePolicyEditor()
 	}
 
 	var b strings.Builder
@@ -365,6 +423,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		}
 		return m, nil
+	case ModeCachePolicyEditor:
+		return m.handleCachePolicyKey(key)
 	case ModeSearch, ModeCompose, ModeCommand, ModeLabelPrompt:
 		if m.mode == ModeCommand {
 			return m.handleCommandKey(msg)
@@ -491,6 +551,87 @@ func (m Model) handleCommandKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m Model) handleCachePolicyKey(key string) (tea.Model, tea.Cmd) {
+	if key == "ctrl+c" {
+		m.stopSync()
+		m.quitting = true
+		return m, tea.Quit
+	}
+	switch key {
+	case "esc":
+		m.mode = ModeNormal
+		m.statusMessage = "cache policy canceled"
+	case "q":
+		m.stopSync()
+		m.quitting = true
+		return m, tea.Quit
+	case ":":
+		m.mode = ModeCommand
+		m.commandInput = ":"
+	case "j", "down":
+		m.selectedCachePolicy = clamp(m.selectedCachePolicy+1, 0, len(m.cachePolicyTable.Rows)-1)
+	case "k", "up":
+		m.selectedCachePolicy = clamp(m.selectedCachePolicy-1, 0, len(m.cachePolicyTable.Rows)-1)
+	case "d":
+		m.updateSelectedCachePolicy(cyclePolicyDepth)
+	case "t":
+		m.updateSelectedCachePolicy(cyclePolicyRetention)
+	case "a":
+		m.updateSelectedCachePolicy(cyclePolicyAttachment)
+	case "+", "=":
+		m.updateSelectedCachePolicy(func(row CachePolicyRow) CachePolicyRow {
+			return adjustPolicyAttachmentMax(row, 1)
+		})
+	case "-":
+		m.updateSelectedCachePolicy(func(row CachePolicyRow) CachePolicyRow {
+			return adjustPolicyAttachmentMax(row, -1)
+		})
+	case "s":
+		if m.savingCachePolicy {
+			m.statusMessage = "cache policy save already running"
+			return m, nil
+		}
+		row, ok := m.selectedCachePolicyRow()
+		if !ok {
+			m.statusMessage = "no cache policy selected"
+			return m, nil
+		}
+		m.savingCachePolicy = true
+		m.statusMessage = "saving cache policy..."
+		return m, m.runCachePolicySave(row)
+	case "x":
+		if m.savingCachePolicy {
+			m.statusMessage = "cache policy reset already running"
+			return m, nil
+		}
+		row, ok := m.selectedCachePolicyRow()
+		if !ok {
+			m.statusMessage = "no cache policy selected"
+			return m, nil
+		}
+		m.savingCachePolicy = true
+		m.statusMessage = "resetting cache policy..."
+		return m, m.runCachePolicyReset(row)
+	}
+	return m, nil
+}
+
+func (m *Model) updateSelectedCachePolicy(fn func(CachePolicyRow) CachePolicyRow) {
+	row, ok := m.selectedCachePolicyRow()
+	if !ok {
+		return
+	}
+	m.cachePolicyTable.Rows[clamp(m.selectedCachePolicy, 0, len(m.cachePolicyTable.Rows)-1)] = fn(row)
+	m.statusMessage = "cache policy edited"
+}
+
+func (m Model) selectedCachePolicyRow() (CachePolicyRow, bool) {
+	if len(m.cachePolicyTable.Rows) == 0 {
+		return CachePolicyRow{}, false
+	}
+	return m.cachePolicyTable.Rows[clamp(m.selectedCachePolicy, 0, len(m.cachePolicyTable.Rows)-1)], true
+}
+
 func (m Model) submitCommand() (tea.Model, tea.Cmd) {
 	command := strings.TrimSpace(strings.TrimPrefix(m.commandInput, ":"))
 	m.mode = ModeNormal
@@ -538,6 +679,21 @@ func (m Model) submitCommand() (tea.Model, tea.Cmd) {
 		m.statusMessage = "loading cache dashboard..."
 		m.toastMessage = m.statusMessage
 		return m, m.runCacheDashboard()
+	case "cache-policy":
+		if m.loadingCachePolicies || m.savingCachePolicy {
+			m.statusMessage = "cache policy operation already running"
+			m.toastMessage = m.statusMessage
+			return m, nil
+		}
+		if m.cachePolicyStore == nil {
+			m.statusMessage = "cache policy unavailable"
+			m.toastMessage = m.statusMessage
+			return m, nil
+		}
+		m.loadingCachePolicies = true
+		m.statusMessage = "loading cache policy..."
+		m.toastMessage = m.statusMessage
+		return m, m.runCachePolicyLoad()
 	case "quit", "q":
 		m.stopSync()
 		m.quitting = true
@@ -689,6 +845,27 @@ func (m Model) runCacheDashboard() tea.Cmd {
 	return func() tea.Msg {
 		result, err := m.cacheDashboardLoader.LoadCacheDashboard()
 		return cacheDashboardDoneMsg{Result: result, Err: err}
+	}
+}
+
+func (m Model) runCachePolicyLoad() tea.Cmd {
+	return func() tea.Msg {
+		result, err := m.cachePolicyStore.LoadCachePolicies()
+		return cachePolicyLoadDoneMsg{Result: result, Err: err}
+	}
+}
+
+func (m Model) runCachePolicySave(row CachePolicyRow) tea.Cmd {
+	return func() tea.Msg {
+		result, err := m.cachePolicyStore.SaveCachePolicy(row)
+		return cachePolicySaveDoneMsg{Row: result, Err: err}
+	}
+}
+
+func (m Model) runCachePolicyReset(row CachePolicyRow) tea.Cmd {
+	return func() tea.Msg {
+		result, err := m.cachePolicyStore.ResetCachePolicy(row)
+		return cachePolicyResetDoneMsg{Row: result, Err: err}
 	}
 }
 
