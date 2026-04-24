@@ -113,11 +113,13 @@ func (m Model) handleComposeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.compose.SendStatus = compose.SendStatusDraftSaved
 		m.mode = ModeNormal
 		m.statusMessage = "draft saved"
+		return m.startComposeRefresh("DRAFT", "Drafts")
 	case tea.KeyCtrlS:
 		m.compose.SendStatus = compose.SendStatusSent
 		m.compose.AutosaveStatus = "sent"
 		m.mode = ModeNormal
 		m.statusMessage = "send complete"
+		return m.startComposeRefresh("SENT", "Sent")
 	case tea.KeyCtrlC:
 		m.compose.DiscardConfirm = true
 		m.statusMessage = "discard compose? y/n"
@@ -129,6 +131,31 @@ func (m Model) handleComposeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.statusMessage = "compose closed"
 	}
 	return m, nil
+}
+
+func (m Model) startComposeRefresh(labelID string, labelName string) (tea.Model, tea.Cmd) {
+	if m.manualRefresher == nil {
+		return m, nil
+	}
+	request := RefreshRequest{
+		Kind:      RefreshRelistLabel,
+		Account:   m.mailbox.Account,
+		LabelID:   labelID,
+		LabelName: labelName,
+	}
+	m.refreshingAccount = request.Account
+	m.toastMessage = "refreshing " + labelName + "..."
+	return m, m.runRefresh(request)
+}
+
+func (m Model) ApplyOutboxSentTransition(account string) Model {
+	if sameAccountRef(m.mailbox.Account, account) {
+		m.compose.SendStatus = compose.SendStatusSent
+		m.compose.AutosaveStatus = "sent from outbox"
+		m.statusMessage = "queued send completed"
+		m.toastMessage = m.statusMessage
+	}
+	return m
 }
 
 func (m Model) selectedComposeOriginal() compose.OriginalMessage {

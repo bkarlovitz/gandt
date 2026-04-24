@@ -109,3 +109,48 @@ func TestComposeModeAttachmentPathInput(t *testing.T) {
 		t.Fatalf("error=%q status=%q", model.compose.Error, model.statusMessage)
 	}
 }
+
+func TestComposeModeRefreshesAfterSendAndDraft(t *testing.T) {
+	refresher := &fakeManualRefresher{result: RefreshResult{Summary: "compose refreshed"}}
+	model := New(config.Default(), WithManualRefresher(refresher))
+	updated, _ := model.Update(keyMsg("c"))
+	model = updated.(Model)
+	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyCtrlS})
+	model = updated.(Model)
+	if cmd == nil {
+		t.Fatal("expected post-send refresh command")
+	}
+	if len(refresher.requests) != 0 {
+		t.Fatal("refresh command should not run until executed")
+	}
+	_ = cmd()
+	if len(refresher.requests) != 1 || refresher.requests[0].Account != model.mailbox.Account || refresher.requests[0].LabelID != "SENT" {
+		t.Fatalf("send refresh requests = %#v", refresher.requests)
+	}
+
+	refresher.requests = nil
+	updated, _ = model.Update(keyMsg("c"))
+	model = updated.(Model)
+	updated, cmd = model.Update(tea.KeyMsg{Type: tea.KeyCtrlD})
+	model = updated.(Model)
+	if cmd == nil {
+		t.Fatal("expected post-draft refresh command")
+	}
+	_ = cmd()
+	if len(refresher.requests) != 1 || refresher.requests[0].LabelID != "DRAFT" {
+		t.Fatalf("draft refresh requests = %#v", refresher.requests)
+	}
+}
+
+func TestApplyOutboxSentTransitionScopesAccount(t *testing.T) {
+	model := New(config.Default())
+	model.mailbox.Account = "acct-1"
+	model = model.ApplyOutboxSentTransition("other")
+	if model.statusMessage != "" {
+		t.Fatalf("status changed for other account: %q", model.statusMessage)
+	}
+	model = model.ApplyOutboxSentTransition("acct-1")
+	if model.compose.SendStatus != compose.SendStatusSent || model.statusMessage != "queued send completed" {
+		t.Fatalf("model = %#v", model.compose)
+	}
+}

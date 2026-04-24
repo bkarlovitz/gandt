@@ -85,7 +85,7 @@ Grounded in `prd.md` sections 8, 9, 13.3, 13.5, 13.7, 13.8, 14, 15, 17, 19, 20, 
   - Include selected attachment size/type in compose UI.
   - Validation: `go test ./internal/ui ./internal/compose` covers add, remove, missing file, unreadable file, and MIME inclusion.
 
-- [ ] **Task 8.14**: Update Gmail state after compose operations
+- [x] **Task 8.14**: Update Gmail state after compose operations
   - After send or draft update, refresh affected labels and threads.
   - Ensure sent/draft messages route to the correct account.
   - Keep the UI consistent if a send succeeds after being queued.
