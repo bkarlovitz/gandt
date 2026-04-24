@@ -35,6 +35,7 @@ type Message struct {
 	Date            string
 	Snippet         string
 	Body            []string
+	BodyHTML        string
 	Unread          bool
 	Starred         bool
 	Muted           bool
@@ -52,6 +53,7 @@ type ThreadMessage struct {
 	Address     string
 	Date        string
 	Body        []string
+	BodyHTML    string
 	Attachments []Attachment
 }
 
@@ -498,7 +500,9 @@ func (m Model) renderReader(width, maxRows int) []string {
 	case m.loadingThreadID != "" && m.loadingThreadID == message.ThreadID:
 		lines = append(lines, "Loading thread...")
 	case len(readerMessage.Body) > 0:
-		lines = append(lines, m.renderBodyLines(readerMessage.Body)...)
+		lines = append(lines, m.renderBodyLines(readerMessage)...)
+	case readerMessage.BodyHTML != "":
+		lines = append(lines, m.renderBodyLines(readerMessage)...)
 	case message.CacheState == "metadata":
 		lines = append(lines, "[metadata only; body not cached]")
 	default:
@@ -527,17 +531,40 @@ func (m Model) readerMessage(message Message) ThreadMessage {
 		Address:     message.Address,
 		Date:        message.Date,
 		Body:        message.Body,
+		BodyHTML:    message.BodyHTML,
 		Attachments: message.Attachments,
 	}
 }
 
-func (m Model) renderBodyLines(lines []string) []string {
-	body := strings.Join(lines, "\n")
+func (m Model) renderBodyLines(message ThreadMessage) []string {
+	body := strings.Join(message.Body, "\n")
+	if message.BodyHTML != "" && m.renderMode != string(render.HTMLRenderModePlaintext) {
+		rendered, err := render.HTMLBody(message.BodyHTML, render.HTMLRenderMode(m.renderMode), render.HTMLRenderOptions{
+			URLFootnotes: m.config.UI.RenderURLFootnotes,
+			Width:        m.readerBodyWidth(),
+		})
+		if err == nil && strings.TrimSpace(rendered) != "" {
+			body = rendered
+		}
+	}
 	if m.showQuotes {
 		return strings.Split(strings.TrimSpace(body), "\n")
 	}
 	formatted := render.FormatQuotes(body, render.QuoteOptions{CollapseThreshold: 4})
 	return strings.Split(formatted, "\n")
+}
+
+func (m Model) readerBodyWidth() int {
+	switch {
+	case m.width >= 120:
+		return m.width - 22 - 42 - 6
+	case m.width >= 80:
+		return m.width - 38 - 3
+	case m.width > 0:
+		return m.width
+	default:
+		return 100
+	}
 }
 
 func depthIndicator(depth string) string {

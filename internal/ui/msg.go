@@ -32,6 +32,10 @@ type threadLoadDoneMsg struct {
 	Err    error
 }
 
+type browserOpenDoneMsg struct {
+	Err error
+}
+
 type refreshDoneMsg struct {
 	Request RefreshRequest
 	Result  RefreshResult

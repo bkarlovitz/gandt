@@ -11,6 +11,7 @@ import (
 	"github.com/bkarlovitz/gandt/internal/compose"
 	"github.com/bkarlovitz/gandt/internal/config"
 	"github.com/bkarlovitz/gandt/internal/gmail"
+	"github.com/bkarlovitz/gandt/internal/render"
 	gandtsync "github.com/bkarlovitz/gandt/internal/sync"
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -77,6 +78,7 @@ type Model struct {
 	replacingCreds        bool
 	replaceCreds          CredentialReplacer
 	threadLoader          ThreadLoader
+	browserOpener         BrowserOpener
 	loadingThreadID       string
 	manualRefresher       ManualRefresher
 	refreshingAccount     string
@@ -203,6 +205,14 @@ func WithThreadLoader(loader ThreadLoader) Option {
 	return func(m *Model) {
 		if loader != nil {
 			m.threadLoader = loader
+		}
+	}
+}
+
+func WithBrowserOpener(opener BrowserOpener) Option {
+	return func(m *Model) {
+		if opener != nil {
+			m.browserOpener = opener
 		}
 	}
 }
@@ -398,6 +408,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.applyThreadLoadResult(msg.Result)
 		m.statusMessage = "loaded thread"
+	case browserOpenDoneMsg:
+		if msg.Err != nil {
+			m.statusMessage = "open browser failed: " + msg.Err.Error()
+			m.toastMessage = m.statusMessage
+			return m, nil
+		}
+		m.statusMessage = "message opened in browser"
+		m.toastMessage = m.statusMessage
 	case refreshDoneMsg:
 		m.refreshingAccount = ""
 		if msg.Err != nil {
@@ -815,7 +833,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "V":
 		m.toggleRenderMode()
 	case "B":
-		m.statusMessage = "browser open unavailable in read-only mode"
+		return m.openSelectedMessageInBrowser()
 	case "z":
 		m.showQuotes = !m.showQuotes
 		if m.showQuotes {
@@ -2446,6 +2464,7 @@ func (m *Model) applyThreadLoadResult(result ThreadLoadResult) {
 				continue
 			}
 			messages[i].Body = append([]string{}, result.Body...)
+			messages[i].BodyHTML = result.BodyHTML
 			messages[i].Attachments = append([]Attachment{}, result.Attachments...)
 			messages[i].ThreadMessages = append([]ThreadMessage{}, result.ThreadMessages...)
 			if result.CacheState != "" {
@@ -2475,8 +2494,11 @@ func messageHasReadableBody(message Message) bool {
 	if len(message.Body) > 0 {
 		return true
 	}
+	if message.BodyHTML != "" {
+		return true
+	}
 	for _, threadMessage := range message.ThreadMessages {
-		if len(threadMessage.Body) > 0 {
+		if len(threadMessage.Body) > 0 || threadMessage.BodyHTML != "" {
 			return true
 		}
 	}
@@ -2563,14 +2585,34 @@ func (m Model) currentMessages() []Message {
 
 func (m *Model) toggleRenderMode() {
 	switch m.renderMode {
-	case "plaintext":
-		m.renderMode = "html2text"
-	case "html2text":
-		m.renderMode = "glamour"
+	case string(render.HTMLRenderModePlaintext):
+		m.renderMode = string(render.HTMLRenderModeHTMLText)
+	case string(render.HTMLRenderModeHTMLText):
+		m.renderMode = string(render.HTMLRenderModeRawHTML)
+	case string(render.HTMLRenderModeRawHTML):
+		m.renderMode = string(render.HTMLRenderModeGlamour)
 	default:
-		m.renderMode = "plaintext"
+		m.renderMode = string(render.HTMLRenderModePlaintext)
 	}
 	m.statusMessage = "render mode: " + m.renderMode
+}
+
+func (m Model) openSelectedMessageInBrowser() (tea.Model, tea.Cmd) {
+	messages := m.currentMessages()
+	if len(messages) == 0 {
+		m.statusMessage = "no message selected"
+		return m, nil
+	}
+	message := messages[clamp(m.selectedMessage, 0, len(messages)-1)]
+	if m.browserOpener == nil {
+		m.statusMessage = "browser open unavailable"
+		return m, nil
+	}
+	m.statusMessage = "opening message in browser..."
+	return m, func() tea.Msg {
+		err := m.browserOpener.OpenMessage(m.mailbox.Account, message)
+		return browserOpenDoneMsg{Err: err}
+	}
 }
 
 func (m *Model) updateSelectedLabelMessages() {

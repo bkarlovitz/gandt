@@ -24,6 +24,7 @@ const (
 
 	RenderModePlaintext RenderMode = "plaintext"
 	RenderModeHTMLText  RenderMode = "html2text"
+	RenderModeRawHTML   RenderMode = "raw_html"
 	RenderModeGlamour   RenderMode = "glamour"
 
 	CacheDepthNone     CacheDepth = "none"
@@ -195,7 +196,7 @@ func validComposeEditor(value ComposeEditor) bool {
 
 func validRenderMode(value RenderMode) bool {
 	switch value {
-	case RenderModePlaintext, RenderModeHTMLText, RenderModeGlamour:
+	case RenderModePlaintext, RenderModeHTMLText, RenderModeRawHTML, RenderModeGlamour:
 		return true
 	default:
 		return false

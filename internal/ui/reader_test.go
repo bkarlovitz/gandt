@@ -263,10 +263,70 @@ func TestReadOnlyRenderBrowserAndQuoteKeys(t *testing.T) {
 	if model.renderMode != "html2text" || model.statusMessage != "render mode: html2text" {
 		t.Fatalf("render mode = %q/%q, want html2text", model.renderMode, model.statusMessage)
 	}
+	updated, _ = model.Update(keyMsg("V"))
+	model = updated.(Model)
+	if model.renderMode != "raw_html" || model.statusMessage != "render mode: raw_html" {
+		t.Fatalf("render mode = %q/%q, want raw_html", model.renderMode, model.statusMessage)
+	}
+	updated, _ = model.Update(keyMsg("V"))
+	model = updated.(Model)
+	if model.renderMode != "glamour" || model.statusMessage != "render mode: glamour" {
+		t.Fatalf("render mode = %q/%q, want glamour", model.renderMode, model.statusMessage)
+	}
 	updated, _ = model.Update(keyMsg("B"))
 	model = updated.(Model)
-	if model.statusMessage != "browser open unavailable in read-only mode" {
+	if model.statusMessage != "browser open unavailable" {
 		t.Fatalf("browser status = %q, want unavailable placeholder", model.statusMessage)
+	}
+}
+
+func TestReaderOpenBrowserUsesSelectedMessage(t *testing.T) {
+	openedAccount := ""
+	openedMessage := Message{}
+	model := New(config.Default(),
+		WithMailbox(readerMailbox([]string{"body"})),
+		WithBrowserOpener(BrowserOpenerFunc(func(account string, message Message) error {
+			openedAccount = account
+			openedMessage = message
+			return nil
+		})),
+	)
+
+	updated, cmd := model.Update(keyMsg("B"))
+	model = updated.(Model)
+	if cmd == nil || model.statusMessage != "opening message in browser..." {
+		t.Fatalf("browser command/status = %T/%q, want command and opening status", cmd, model.statusMessage)
+	}
+	updated, _ = model.Update(cmd())
+	model = updated.(Model)
+
+	if openedAccount != "me@example.com" || openedMessage.ID != "message-1" || openedMessage.ThreadID != "thread-1" {
+		t.Fatalf("opened account/message = %q/%#v, want selected message", openedAccount, openedMessage)
+	}
+	if model.statusMessage != "message opened in browser" {
+		t.Fatalf("browser status = %q, want success", model.statusMessage)
+	}
+}
+
+func TestReaderRenderModesUseRawHTMLWhenAvailable(t *testing.T) {
+	message := readerMessage("message-1", "thread-1", []string{"plain fallback"})
+	message.BodyHTML = `<h1>HTML Body</h1><p>Visit <a href="https://example.com">site</a>.</p>`
+	model := New(config.Default(), WithMailbox(readerMailboxWithMessages([]Message{message})))
+	updated, _ := model.Update(tea.WindowSizeMsg{Width: 100, Height: 20})
+	model = updated.(Model)
+
+	if !strings.Contains(model.View(), "plain fallback") {
+		t.Fatalf("plaintext render missing plain body:\n%s", model.View())
+	}
+	updated, _ = model.Update(keyMsg("V"))
+	model = updated.(Model)
+	if view := model.View(); !strings.Contains(view, "HTML Body") || !strings.Contains(view, "[^1]: https://example.com") {
+		t.Fatalf("html2text render missing rendered html:\n%s", view)
+	}
+	updated, _ = model.Update(keyMsg("V"))
+	model = updated.(Model)
+	if view := model.View(); !strings.Contains(view, "<h1>HTML Body</h1>") {
+		t.Fatalf("raw html render missing raw markup:\n%s", view)
 	}
 }
 

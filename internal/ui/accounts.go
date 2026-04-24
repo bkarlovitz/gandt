@@ -68,6 +68,7 @@ type ThreadLoadResult struct {
 	MessageID      string
 	ThreadID       string
 	Body           []string
+	BodyHTML       string
 	CacheState     string
 	Attachments    []Attachment
 	ThreadMessages []ThreadMessage
@@ -81,6 +82,16 @@ type ThreadLoaderFunc func(ThreadLoadRequest) (ThreadLoadResult, error)
 
 func (fn ThreadLoaderFunc) LoadThread(request ThreadLoadRequest) (ThreadLoadResult, error) {
 	return fn(request)
+}
+
+type BrowserOpener interface {
+	OpenMessage(account string, message Message) error
+}
+
+type BrowserOpenerFunc func(account string, message Message) error
+
+func (fn BrowserOpenerFunc) OpenMessage(account string, message Message) error {
+	return fn(account, message)
 }
 
 type RefreshKind string

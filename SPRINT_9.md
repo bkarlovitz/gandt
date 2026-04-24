@@ -7,7 +7,7 @@
 Grounded in `prd.md` sections 5, 12, 13.10, 14, 15, 16, 17, 18, 19, 20, 21 M6, 22, and 23.
 
 ## Tasks
-- [ ] **Task 9.1**: Improve HTML rendering quality
+- [x] **Task 9.1**: Improve HTML rendering quality
   - Refine html2text settings for poor plaintext and HTML-only messages.
   - Add render-mode cycling for plaintext, html2text, raw HTML, and Glamour where applicable.
   - Add `B` open-in-browser behavior for messages that need the Gmail web UI.

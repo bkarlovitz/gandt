@@ -3,16 +3,28 @@ package render
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"path"
 	"strings"
 
+	"github.com/charmbracelet/glamour"
 	"golang.org/x/net/html"
 	"golang.org/x/net/html/atom"
 	html2text "jaytaylor.com/html2text"
 )
 
+type HTMLRenderMode string
+
+const (
+	HTMLRenderModePlaintext HTMLRenderMode = "plaintext"
+	HTMLRenderModeHTMLText  HTMLRenderMode = "html2text"
+	HTMLRenderModeRawHTML   HTMLRenderMode = "raw_html"
+	HTMLRenderModeGlamour   HTMLRenderMode = "glamour"
+)
+
 type HTMLRenderOptions struct {
 	URLFootnotes bool
+	Width        int
 }
 
 func HTMLToText(input string, opts HTMLRenderOptions) (string, error) {
@@ -30,6 +42,9 @@ func HTMLToText(input string, opts HTMLRenderOptions) (string, error) {
 		return "", fmt.Errorf("render html: %w", err)
 	}
 	text = strings.TrimSpace(text)
+	if shouldUseVisibleTextFallback(input, text) {
+		text = visibleText(doc)
+	}
 
 	if opts.URLFootnotes && len(links) > 0 {
 		var b strings.Builder
@@ -44,6 +59,39 @@ func HTMLToText(input string, opts HTMLRenderOptions) (string, error) {
 		text = b.String()
 	}
 	return text, nil
+}
+
+func HTMLBody(input string, mode HTMLRenderMode, opts HTMLRenderOptions) (string, error) {
+	switch mode {
+	case HTMLRenderModeRawHTML:
+		return strings.TrimSpace(strings.ReplaceAll(input, "\r\n", "\n")), nil
+	case HTMLRenderModeGlamour:
+		text, err := HTMLToText(input, opts)
+		if err != nil {
+			return "", err
+		}
+		width := opts.Width
+		if width <= 0 {
+			width = 100
+		}
+		renderer, err := glamour.NewTermRenderer(
+			glamour.WithStandardStyle("notty"),
+			glamour.WithWordWrap(width),
+			glamour.WithPreservedNewLines(),
+		)
+		if err != nil {
+			return "", fmt.Errorf("create glamour renderer: %w", err)
+		}
+		rendered, err := renderer.Render(text)
+		if err != nil {
+			return "", fmt.Errorf("render glamour: %w", err)
+		}
+		return strings.TrimSpace(rendered), nil
+	case HTMLRenderModePlaintext, HTMLRenderModeHTMLText, "":
+		return HTMLToText(input, opts)
+	default:
+		return "", fmt.Errorf("unsupported html render mode %q", mode)
+	}
 }
 
 func decorateHTML(node *html.Node, opts HTMLRenderOptions) []string {
@@ -69,6 +117,70 @@ func decorateHTML(node *html.Node, opts HTMLRenderOptions) []string {
 	}
 	walk(node)
 	return links
+}
+
+func shouldUseVisibleTextFallback(input string, text string) bool {
+	htmlBytes := len(strings.TrimSpace(input))
+	textBytes := len(strings.TrimSpace(text))
+	return htmlBytes > 200 && textBytes > 0 && textBytes*10 < htmlBytes
+}
+
+func visibleText(node *html.Node) string {
+	var b strings.Builder
+	var walk func(*html.Node)
+	walk = func(n *html.Node) {
+		if n.Type == html.ElementNode {
+			switch n.DataAtom {
+			case atom.Script, atom.Style, atom.Head, atom.Meta, atom.Link:
+				return
+			case atom.Br, atom.P, atom.Div, atom.Tr, atom.Li, atom.H1, atom.H2, atom.H3:
+				writeVisibleBreak(&b)
+			}
+		}
+		if n.Type == html.TextNode {
+			text := strings.Join(strings.Fields(n.Data), " ")
+			if text != "" {
+				if b.Len() > 0 && !strings.HasSuffix(b.String(), " ") && !strings.HasSuffix(b.String(), "\n") {
+					b.WriteByte(' ')
+				}
+				b.WriteString(text)
+			}
+		}
+		for child := n.FirstChild; child != nil; child = child.NextSibling {
+			walk(child)
+		}
+		if n.Type == html.ElementNode {
+			switch n.DataAtom {
+			case atom.P, atom.Div, atom.Tr, atom.Li, atom.H1, atom.H2, atom.H3:
+				writeVisibleBreak(&b)
+			}
+		}
+	}
+	walk(node)
+	return strings.TrimSpace(compactBlankLines(b.String()))
+}
+
+func writeVisibleBreak(w io.StringWriter) {
+	_, _ = w.WriteString("\n")
+}
+
+func compactBlankLines(value string) string {
+	lines := strings.Split(strings.ReplaceAll(value, "\r\n", "\n"), "\n")
+	out := make([]string, 0, len(lines))
+	blank := false
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			if !blank && len(out) > 0 {
+				out = append(out, "")
+			}
+			blank = true
+			continue
+		}
+		out = append(out, line)
+		blank = false
+	}
+	return strings.Join(out, "\n")
 }
 
 func replaceImageWithPlaceholder(n *html.Node) {

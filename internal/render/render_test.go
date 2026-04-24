@@ -61,6 +61,40 @@ func TestHTMLTablesGolden(t *testing.T) {
 	assertGolden(t, "html_table.golden", got)
 }
 
+func TestHTMLRawGolden(t *testing.T) {
+	input := `<section><h1>Sale</h1><p>Open in Gmail for the full newsletter.</p></section>`
+
+	got, err := HTMLBody(input, HTMLRenderModeRawHTML, HTMLRenderOptions{URLFootnotes: true})
+	if err != nil {
+		t.Fatalf("raw html: %v", err)
+	}
+	assertGolden(t, "html_raw.golden", got)
+}
+
+func TestHTMLGlamourGolden(t *testing.T) {
+	input := `<h1>Sale</h1><p>Visit <a href="https://example.com/store">the store</a>.</p>`
+
+	got, err := HTMLBody(input, HTMLRenderModeGlamour, HTMLRenderOptions{URLFootnotes: true, Width: 72})
+	if err != nil {
+		t.Fatalf("glamour html: %v", err)
+	}
+	assertGolden(t, "html_glamour.golden", got)
+}
+
+func TestHTMLVisibleTextFallbackForSparseNewsletter(t *testing.T) {
+	input := `<html><head><style>.x{display:none}</style></head><body><div>` +
+		strings.Repeat(`<span data-tracking="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"></span>`, 30) +
+		`<p>Primary offer</p><p>Open the account dashboard.</p></div></body></html>`
+
+	got, err := HTMLToText(input, HTMLRenderOptions{URLFootnotes: true})
+	if err != nil {
+		t.Fatalf("html to text: %v", err)
+	}
+	if !strings.Contains(got, "Primary offer") || !strings.Contains(got, "Open the account dashboard.") {
+		t.Fatalf("fallback text missing visible content:\n%s", got)
+	}
+}
+
 func TestAttachmentsGolden(t *testing.T) {
 	lines := FormatAttachments([]Attachment{
 		{Name: "plan.pdf", MimeType: "application/pdf", SizeBytes: 1536},

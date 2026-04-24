@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"net/mail"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -21,6 +22,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	charmlog "github.com/charmbracelet/log"
 	"github.com/jmoiron/sqlx"
+	"github.com/pkg/browser"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/option"
@@ -63,6 +65,7 @@ func main() {
 		ui.WithAccountRemover(buildAccountRemover(paths)),
 		ui.WithCredentialReplacer(buildCredentialReplacer()),
 		ui.WithThreadLoader(buildThreadLoader(paths, cfg)),
+		ui.WithBrowserOpener(ui.BrowserOpenerFunc(openMessageInBrowser)),
 		ui.WithManualRefresher(buildManualRefresher(paths, cfg)),
 		ui.WithSearchRunner(buildSearchRunner(paths, cfg)),
 		ui.WithRecentSearchStore(buildRecentSearchStore(paths, cfg)),
@@ -1316,8 +1319,9 @@ func cachedThreadLoad(ctx context.Context, db *sqlx.DB, cfg config.Config, accou
 		}
 		if cachedMessage.ID == message.ID {
 			result.Body = append([]string{}, threadMessage.Body...)
+			result.BodyHTML = threadMessage.BodyHTML
 			result.Attachments = append([]ui.Attachment{}, threadMessage.Attachments...)
-			selectedHasBody = len(threadMessage.Body) > 0
+			selectedHasBody = len(threadMessage.Body) > 0 || threadMessage.BodyHTML != ""
 		}
 		result.ThreadMessages = append(result.ThreadMessages, threadMessage)
 	}
@@ -1326,6 +1330,7 @@ func cachedThreadLoad(ctx context.Context, db *sqlx.DB, cfg config.Config, accou
 	}
 	if len(result.Body) == 0 && len(result.ThreadMessages) > 0 {
 		result.Body = append([]string{}, result.ThreadMessages[0].Body...)
+		result.BodyHTML = result.ThreadMessages[0].BodyHTML
 		result.Attachments = append([]ui.Attachment{}, result.ThreadMessages[0].Attachments...)
 	}
 	return result, true, nil
@@ -1369,6 +1374,7 @@ func streamedThreadLoad(ctx context.Context, db *sqlx.DB, cfg config.Config, acc
 
 		if message.ID == selected.ID {
 			result.Body = append([]string{}, threadMessage.Body...)
+			result.BodyHTML = threadMessage.BodyHTML
 			result.Attachments = append([]ui.Attachment{}, threadMessage.Attachments...)
 			result.CacheState = cacheState
 		}
@@ -1376,6 +1382,7 @@ func streamedThreadLoad(ctx context.Context, db *sqlx.DB, cfg config.Config, acc
 	}
 	if len(result.Body) == 0 && len(result.ThreadMessages) > 0 {
 		result.Body = append([]string{}, result.ThreadMessages[0].Body...)
+		result.BodyHTML = result.ThreadMessages[0].BodyHTML
 		result.Attachments = append([]ui.Attachment{}, result.ThreadMessages[0].Attachments...)
 	}
 	return result, nil
@@ -1491,6 +1498,7 @@ func cachedUIThreadMessage(ctx context.Context, attachments cache.AttachmentRepo
 		Address:     address,
 		Date:        displayDate(message.InternalDate, message.Date),
 		Body:        body,
+		BodyHTML:    stringValue(message.BodyHTML),
 		Attachments: uiAttachments(cachedAttachments),
 	}, nil
 }
@@ -1525,8 +1533,21 @@ func gmailUIThreadMessage(cfg config.Config, message gandtgmail.Message) (ui.Thr
 		Address:     address,
 		Date:        displayDate(timePtr(message.InternalDate)),
 		Body:        body,
+		BodyHTML:    stringValue(extracted.HTML),
 		Attachments: uiMIMEAttachments(extracted.Attachments),
 	}, nil
+}
+
+func openMessageInBrowser(account string, message ui.Message) error {
+	threadID := firstNonEmptyString(message.ThreadID, message.ID)
+	if threadID == "" {
+		return errors.New("message has no Gmail thread ID")
+	}
+	base := "https://mail.google.com/mail/u/"
+	if strings.TrimSpace(account) != "" && !strings.Contains(account, " ") {
+		base += "?authuser=" + url.QueryEscape(account)
+	}
+	return browser.OpenURL(base + "#all/" + url.PathEscape(threadID))
 }
 
 func extractedBodyLines(cfg config.Config, extracted gandtgmail.ExtractedBody) ([]string, error) {
@@ -1549,6 +1570,13 @@ func bodyLines(body string) []string {
 		return nil
 	}
 	return strings.Split(body, "\n")
+}
+
+func stringValue(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
 }
 
 func uiAttachments(attachments []cache.Attachment) []ui.Attachment {
