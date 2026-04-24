@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/bkarlovitz/gandt/internal/cache"
+	"github.com/bkarlovitz/gandt/internal/config"
 	"github.com/bkarlovitz/gandt/internal/gmail"
 )
 
@@ -22,6 +24,12 @@ type OnlineSearchRequest struct {
 type OnlineSearchResult struct {
 	Messages           []gmail.Message
 	ResultSizeEstimate int
+}
+
+type SearchPersistenceResult struct {
+	MetadataCached int
+	BodyQueue      []BodyFetchRequest
+	ExcludedCount  int
 }
 
 func NewOnlineSearcher(reader gmail.MessageReader) OnlineSearcher {
@@ -79,6 +87,44 @@ func (s OnlineSearcher) Search(ctx context.Context, request OnlineSearchRequest)
 	}
 	if len(result.Messages) > limit {
 		result.Messages = result.Messages[:limit]
+	}
+	return result, nil
+}
+
+func (b Backfiller) PersistSearchResults(ctx context.Context, account cache.Account, messages []gmail.Message) (SearchPersistenceResult, error) {
+	result := SearchPersistenceResult{}
+	for _, message := range messages {
+		if message.ID == "" {
+			continue
+		}
+		message.ThreadID = firstNonEmpty(message.ThreadID, message.ID)
+		labelIDs := mergeLabels(nil, message.LabelIDs)
+		decision, err := b.evaluator.Evaluate(ctx, MessageContext{
+			AccountID:    account.ID,
+			AccountEmail: account.Email,
+			From:         headerValue(message.Headers, "From"),
+			LabelIDs:     labelIDs,
+		})
+		if err != nil {
+			return SearchPersistenceResult{}, err
+		}
+		if decision.Excluded {
+			result.ExcludedCount++
+			continue
+		}
+		if decision.Persist {
+			if err := b.persistMetadata(ctx, account.ID, message, labelIDs); err != nil {
+				return SearchPersistenceResult{}, err
+			}
+			result.MetadataCached++
+		}
+		if decision.Depth == config.CacheDepthBody || decision.Depth == config.CacheDepthFull {
+			result.BodyQueue = append(result.BodyQueue, BodyFetchRequest{
+				MessageID: message.ID,
+				ThreadID:  message.ThreadID,
+				Depth:     decision.Depth,
+			})
+		}
 	}
 	return result, nil
 }

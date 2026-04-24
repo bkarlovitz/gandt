@@ -291,6 +291,16 @@ func buildSearchRunner(paths config.Paths, cfg config.Config) ui.SearchRunner {
 		if err != nil {
 			return ui.SearchResult{}, offlineIfUnavailable(err)
 		}
+		backfiller := gandtsync.NewBackfiller(db, cfg, gmailClient)
+		persisted, err := backfiller.PersistSearchResults(ctx, account, online.Messages)
+		if err != nil {
+			return ui.SearchResult{}, err
+		}
+		if len(persisted.BodyQueue) > 0 {
+			if _, err := backfiller.FetchBodies(ctx, account, persisted.BodyQueue); err != nil {
+				return ui.SearchResult{}, offlineIfUnavailable(err)
+			}
+		}
 		if err := recordRecent(); err != nil {
 			return ui.SearchResult{}, err
 		}

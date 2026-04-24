@@ -56,7 +56,7 @@ Grounded in `prd.md` sections 7, 9, 13.4, 15, 18, 20, and milestone M4.
   - Preserve mode and active account semantics.
   - Validation: `go test ./internal/ui/...` simulates recent search selection, deletion, and re-run.
 
-- [ ] **Task 7.9**: Integrate search with sync and cache policy
+- [x] **Task 7.9**: Integrate search with sync and cache policy
   - For online results, fetch and persist metadata/body only according to effective policy.
   - For excluded messages, allow transient display without writing body content.
   - Ensure offline search only returns data that is already cached.
