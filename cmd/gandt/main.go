@@ -48,7 +48,10 @@ func main() {
 	}
 	defer logFile.Close()
 
-	uiOptions := []ui.Option{ui.WithAccountAdder(buildAccountAdder(paths))}
+	uiOptions := []ui.Option{
+		ui.WithAccountAdder(buildAccountAdder(paths)),
+		ui.WithCredentialReplacer(buildCredentialReplacer()),
+	}
 	if mailbox, ok := loadInitialMailbox(paths); ok {
 		uiOptions = append(uiOptions, ui.WithMailbox(mailbox))
 	}
@@ -98,6 +101,22 @@ func buildAccountAdder(paths config.Paths) ui.AccountAdder {
 			return ui.AccountAddResult{}, err
 		}
 		return ui.AccountAddResult{Account: account.Email, Labels: uiLabels(cache.NewSyncPolicyRepository(db), account.ID, labels)}, nil
+	})
+}
+
+func buildCredentialReplacer() ui.CredentialReplacer {
+	return ui.CredentialReplacerFunc(func() error {
+		ctx := context.Background()
+		secrets := auth.NewSecretStore(auth.SystemKeyring{})
+		setup := auth.NewCredentialSetup(secrets)
+		prompt := auth.HuhCredentialPrompt{}
+
+		confirmed, err := prompt.ConfirmClientCredentialReplacement(ctx)
+		if err != nil {
+			return err
+		}
+		_, err = setup.ReplaceClientCredentials(ctx, prompt, confirmed)
+		return err
 	})
 }
 

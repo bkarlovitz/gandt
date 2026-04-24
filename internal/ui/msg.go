@@ -15,3 +15,7 @@ type addAccountDoneMsg struct {
 	Result AccountAddResult
 	Err    error
 }
+
+type replaceCredentialsDoneMsg struct {
+	Err error
+}

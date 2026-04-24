@@ -30,3 +30,21 @@ func (HuhCredentialPrompt) PromptClientCredentials(ctx context.Context) (ClientC
 		ClientSecret: clientSecret,
 	}, nil
 }
+
+func (HuhCredentialPrompt) ConfirmClientCredentialReplacement(ctx context.Context) (bool, error) {
+	var confirmed bool
+
+	form := huh.NewForm(huh.NewGroup(
+		huh.NewConfirm().
+			Title("Replace Google OAuth client credentials?").
+			Description("Future Gmail authorization will use the new client credentials.").
+			Affirmative("Replace").
+			Negative("Cancel").
+			Value(&confirmed),
+	))
+	if err := form.RunWithContext(ctx); err != nil {
+		return false, err
+	}
+
+	return confirmed, nil
+}

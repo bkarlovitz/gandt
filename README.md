@@ -2,7 +2,12 @@
 
 G&T is a terminal-native Gmail client for keyboard-driven inbox triage. The binary is named `gandt`; the ampersand is display-only and is not used in paths, commands, or identifiers.
 
-This repository is currently at the M0 foundation milestone: the app runs a Bubble Tea TUI with fake inbox data, local config defaults, file-only logging, and no Gmail network calls.
+This repository has completed the Sprint 2 implementation for the M1
+single-account foundation: the app can configure bring-your-own Google OAuth
+client credentials, run a loopback OAuth account-add flow, initialize the
+SQLite cache, and render cached account and label state. The real Gmail
+single-account bootstrap demo still requires manual QA with a test Gmail
+account and Google Desktop OAuth client credentials.
 
 ## Platforms
 
@@ -16,7 +21,10 @@ G&T builds as a single Go binary with `CGO_ENABLED=0`. Go 1.25 or newer is requi
 
 Gmail integration will use the Gmail API directly, not IMAP. Users must bring their own Google OAuth client credentials; shared hosted credentials are out of scope for v1. Tokens and client credentials will be stored in the OS keychain, not in `config.toml`.
 
-No OAuth credentials or Gmail account are required for the current fake-inbox demo.
+No OAuth credentials or Gmail account are required to launch the TUI and inspect
+the no-account/fake-inbox states. Adding a Gmail account with `:add-account`
+requires Google Desktop OAuth client credentials and browser authorization. Use
+`:replace-credentials` to replace the stored OAuth client credentials.
 
 ## Local Development
 

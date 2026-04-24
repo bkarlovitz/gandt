@@ -68,7 +68,7 @@ func (r LabelRepository) List(ctx context.Context, accountID string) ([]Label, e
 SELECT account_id, id, name, type, unread, total, color_bg, color_fg
 FROM labels
 WHERE account_id = ?
-ORDER BY type DESC, name COLLATE NOCASE
+ORDER BY CASE type WHEN 'system' THEN 0 ELSE 1 END, name COLLATE NOCASE
 `, accountID); err != nil {
 		return nil, fmt.Errorf("list labels: %w", err)
 	}

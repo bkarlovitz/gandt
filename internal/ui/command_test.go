@@ -48,6 +48,26 @@ func TestAddAccountCommandShowsLoadingAndSuccess(t *testing.T) {
 	}
 }
 
+func TestAddAccountCommandAppliesEmptyLabelSuccess(t *testing.T) {
+	model := New(config.Default(), WithAccountAdder(AccountAdderFunc(func() (AccountAddResult, error) {
+		return AccountAddResult{Account: "me@example.com"}, nil
+	})))
+
+	updated, cmd := submitTestCommand(model, "add-account")
+	if cmd == nil {
+		t.Fatal("expected add-account command")
+	}
+
+	updated, _ = updated.(Model).Update(cmd())
+	got := updated.(Model)
+	if !got.mailbox.Real || got.mailbox.Account != "me@example.com" || len(got.mailbox.Labels) != 0 {
+		t.Fatalf("mailbox = %#v, want real account with no labels", got.mailbox)
+	}
+	if strings.Contains(got.View(), "fake inbox") {
+		t.Fatalf("view still renders fake inbox after success: %q", got.View())
+	}
+}
+
 func TestAddAccountCommandShowsErrorAndKeepsFakeInbox(t *testing.T) {
 	model := New(config.Default(), WithAccountAdder(AccountAdderFunc(func() (AccountAddResult, error) {
 		return AccountAddResult{}, errors.New("oauth failed")
@@ -70,6 +90,56 @@ func TestAddAccountCommandShowsErrorAndKeepsFakeInbox(t *testing.T) {
 	}
 	if got.mailbox.Account != original.Account || len(got.mailbox.Labels) != len(original.Labels) {
 		t.Fatalf("fake inbox was not preserved: %#v", got.mailbox)
+	}
+}
+
+func TestReplaceCredentialsCommandShowsLoadingAndSuccess(t *testing.T) {
+	calls := 0
+	model := New(config.Default(), WithCredentialReplacer(CredentialReplacerFunc(func() error {
+		calls++
+		return nil
+	})))
+
+	updated, cmd := submitTestCommand(model, "replace-credentials")
+	got := updated.(Model)
+	if cmd == nil {
+		t.Fatal("expected replace-credentials command")
+	}
+	if !got.replacingCreds || got.statusMessage != "replacing credentials..." {
+		t.Fatalf("replacing=%v status=%q, want loading state", got.replacingCreds, got.statusMessage)
+	}
+
+	updated, followup := got.Update(cmd())
+	got = updated.(Model)
+	if followup != nil {
+		t.Fatalf("expected no followup command, got %T", followup)
+	}
+	if calls != 1 {
+		t.Fatalf("credential replacer calls = %d, want 1", calls)
+	}
+	if got.replacingCreds || got.statusMessage != "replaced OAuth client credentials" {
+		t.Fatalf("replacing=%v status=%q, want success state", got.replacingCreds, got.statusMessage)
+	}
+}
+
+func TestReplaceCredentialsCommandShowsError(t *testing.T) {
+	model := New(config.Default(), WithCredentialReplacer(CredentialReplacerFunc(func() error {
+		return errors.New("canceled")
+	})))
+
+	updated, cmd := submitTestCommand(model, "replace-credentials")
+	got := updated.(Model)
+	if cmd == nil {
+		t.Fatal("expected replace-credentials command")
+	}
+
+	updated, _ = got.Update(cmd())
+	got = updated.(Model)
+	if got.replacingCreds {
+		t.Fatal("expected loading to finish")
+	}
+	if got.statusMessage != "replace credentials failed: canceled" {
+		t.Fatalf("status = %q, want failure message", got.statusMessage)
 	}
 }
 

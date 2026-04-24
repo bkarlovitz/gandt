@@ -57,6 +57,38 @@ func TestLabelRepositoryUpsertListDelete(t *testing.T) {
 	}
 }
 
+func TestLabelRepositoryListsSystemLabelsBeforeUserLabels(t *testing.T) {
+	ctx := context.Background()
+	db := migratedTestDB(t)
+	accounts := NewAccountRepository(db)
+	labels := NewLabelRepository(db)
+
+	account, err := accounts.Create(ctx, CreateAccountParams{Email: "me@example.com"})
+	if err != nil {
+		t.Fatalf("create account: %v", err)
+	}
+	for _, label := range []Label{
+		{AccountID: account.ID, ID: "Label_1", Name: "Receipts", Type: "user"},
+		{AccountID: account.ID, ID: "INBOX", Name: "Inbox", Type: "system"},
+		{AccountID: account.ID, ID: "SENT", Name: "Sent", Type: "system"},
+		{AccountID: account.ID, ID: "Label_2", Name: "Travel", Type: "user"},
+	} {
+		if err := labels.Upsert(ctx, label); err != nil {
+			t.Fatalf("upsert label %s: %v", label.ID, err)
+		}
+	}
+
+	listed, err := labels.List(ctx, account.ID)
+	if err != nil {
+		t.Fatalf("list labels: %v", err)
+	}
+	got := labelIDs(listed)
+	want := []string{"INBOX", "SENT", "Label_1", "Label_2"}
+	if !equalStrings(got, want) {
+		t.Fatalf("label order = %#v, want %#v", got, want)
+	}
+}
+
 func TestAccountCreationSeedsDefaultSyncPolicies(t *testing.T) {
 	ctx := context.Background()
 	db := migratedTestDB(t)
@@ -149,4 +181,24 @@ func valueOrZero(value *int) int {
 		return 0
 	}
 	return *value
+}
+
+func labelIDs(labels []Label) []string {
+	ids := make([]string, 0, len(labels))
+	for _, label := range labels {
+		ids = append(ids, label.ID)
+	}
+	return ids
+}
+
+func equalStrings(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }

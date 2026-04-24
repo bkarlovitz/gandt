@@ -44,6 +44,8 @@ type Model struct {
 	statusMessage   string
 	addingAccount   bool
 	addAccount      AccountAdder
+	replacingCreds  bool
+	replaceCreds    CredentialReplacer
 }
 
 type Option func(*Model)
@@ -52,6 +54,14 @@ func WithAccountAdder(adder AccountAdder) Option {
 	return func(m *Model) {
 		if adder != nil {
 			m.addAccount = adder
+		}
+	}
+}
+
+func WithCredentialReplacer(replacer CredentialReplacer) Option {
+	return func(m *Model) {
+		if replacer != nil {
+			m.replaceCreds = replacer
 		}
 	}
 }
@@ -93,10 +103,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.statusMessage = fmt.Sprintf("added account %s", msg.Result.Account)
-		if len(msg.Result.Labels) > 0 {
-			m.mailbox = RealAccountMailbox(msg.Result.Account, msg.Result.Labels)
-			m.selectedLabel = clamp(m.selectedLabel, 0, len(m.mailbox.Labels)-1)
+		m.mailbox = RealAccountMailbox(msg.Result.Account, msg.Result.Labels)
+		m.selectedLabel = clamp(m.selectedLabel, 0, len(m.mailbox.Labels)-1)
+	case replaceCredentialsDoneMsg:
+		m.replacingCreds = false
+		if msg.Err != nil {
+			m.statusMessage = "replace credentials failed: " + msg.Err.Error()
+			return m, nil
 		}
+		m.statusMessage = "replaced OAuth client credentials"
 	case tea.KeyMsg:
 		return m.handleKey(msg)
 	}
@@ -233,8 +248,8 @@ func (m Model) submitCommand() (tea.Model, tea.Cmd) {
 
 	switch command {
 	case "add-account":
-		if m.addingAccount {
-			m.statusMessage = "add account already running"
+		if m.addingAccount || m.replacingCreds {
+			m.statusMessage = "account operation already running"
 			return m, nil
 		}
 		if m.addAccount == nil {
@@ -244,6 +259,18 @@ func (m Model) submitCommand() (tea.Model, tea.Cmd) {
 		m.addingAccount = true
 		m.statusMessage = "adding account..."
 		return m, m.runAddAccount()
+	case "replace-credentials":
+		if m.addingAccount || m.replacingCreds {
+			m.statusMessage = "account operation already running"
+			return m, nil
+		}
+		if m.replaceCreds == nil {
+			m.statusMessage = "replace credentials unavailable"
+			return m, nil
+		}
+		m.replacingCreds = true
+		m.statusMessage = "replacing credentials..."
+		return m, m.runReplaceCredentials()
 	case "quit", "q":
 		m.quitting = true
 		return m, tea.Quit
@@ -259,6 +286,12 @@ func (m Model) runAddAccount() tea.Cmd {
 	return func() tea.Msg {
 		result, err := m.addAccount.AddAccount()
 		return addAccountDoneMsg{Result: result, Err: err}
+	}
+}
+
+func (m Model) runReplaceCredentials() tea.Cmd {
+	return func() tea.Msg {
+		return replaceCredentialsDoneMsg{Err: m.replaceCreds.ReplaceCredentials()}
 	}
 }
 

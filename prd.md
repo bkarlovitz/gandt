@@ -339,7 +339,6 @@ CREATE VIRTUAL TABLE messages_fts USING fts5(
   to_addrs,
   snippet,
   body_plain,
-  content='',                              -- external content; we populate via triggers
   tokenize='porter unicode61'
 );
 

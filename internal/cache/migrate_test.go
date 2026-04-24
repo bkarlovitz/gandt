@@ -60,6 +60,53 @@ func TestMigrateAppliesSchemaV1Once(t *testing.T) {
 	}
 }
 
+func TestMessagesFTSTriggersTrackMessageChanges(t *testing.T) {
+	ctx := context.Background()
+	db := migratedTestDB(t)
+
+	account, err := NewAccountRepository(db).Create(ctx, CreateAccountParams{Email: "me@example.com"})
+	if err != nil {
+		t.Fatalf("create account: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, "INSERT INTO threads (account_id, id) VALUES (?, ?)", account.ID, "thread-1"); err != nil {
+		t.Fatalf("insert thread: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, `
+INSERT INTO messages (account_id, id, thread_id, subject, from_addr, to_addrs, snippet, body_plain)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+`, account.ID, "message-1", "thread-1", "Quarterly planning", "me@example.com", "you@example.com", "Roadmap", "original body"); err != nil {
+		t.Fatalf("insert message: %v", err)
+	}
+	assertFTSMatchCount(t, db, "planning", 1)
+
+	if _, err := db.ExecContext(ctx, `
+UPDATE messages
+SET subject = ?, body_plain = ?
+WHERE account_id = ? AND id = ?
+`, "Release notes", "updated body", account.ID, "message-1"); err != nil {
+		t.Fatalf("update message: %v", err)
+	}
+	assertFTSMatchCount(t, db, "planning", 0)
+	assertFTSMatchCount(t, db, "release", 1)
+
+	if _, err := db.ExecContext(ctx, "DELETE FROM messages WHERE account_id = ? AND id = ?", account.ID, "message-1"); err != nil {
+		t.Fatalf("delete message: %v", err)
+	}
+	assertFTSMatchCount(t, db, "release", 0)
+}
+
+func assertFTSMatchCount(t *testing.T, db queryer, term string, want int) {
+	t.Helper()
+
+	var count int
+	if err := db.GetContext(context.Background(), &count, "SELECT COUNT(*) FROM messages_fts WHERE messages_fts MATCH ?", term); err != nil {
+		t.Fatalf("count fts matches for %q: %v", term, err)
+	}
+	if count != want {
+		t.Fatalf("fts matches for %q = %d, want %d", term, count, want)
+	}
+}
+
 func assertSQLiteObjectExists(t *testing.T, db queryer, typ, name string) {
 	t.Helper()
 
