@@ -20,6 +20,7 @@ const (
 	ModeCompose
 	ModeCommand
 	ModeHelp
+	ModeLabelPrompt
 )
 
 type Pane int
@@ -47,6 +48,7 @@ type Model struct {
 	showQuotes            bool
 	quitting              bool
 	commandInput          string
+	labelPrompt           labelPromptState
 	statusMessage         string
 	offline               bool
 	addingAccount         bool
@@ -81,6 +83,11 @@ type undoState struct {
 	Request  TriageActionRequest
 	Snapshot triageSnapshot
 	Expires  time.Time
+}
+
+type labelPromptState struct {
+	Action TriageActionKind
+	Input  string
 }
 
 func WithAccountAdder(adder AccountAdder) Option {
@@ -285,6 +292,10 @@ func (m Model) View() string {
 		b.WriteString("Command mode\n\n")
 		b.WriteString(m.commandInput)
 		b.WriteString("\n\nPress Esc to return.")
+	case ModeLabelPrompt:
+		b.WriteString("Label\n\n")
+		b.WriteString(m.labelPrompt.Input)
+		b.WriteString("\n\nPress Esc to return.")
 	}
 
 	return b.String()
@@ -311,9 +322,12 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		}
 		return m, nil
-	case ModeSearch, ModeCompose, ModeCommand:
+	case ModeSearch, ModeCompose, ModeCommand, ModeLabelPrompt:
 		if m.mode == ModeCommand {
 			return m.handleCommandKey(msg)
+		}
+		if m.mode == ModeLabelPrompt {
+			return m.handleLabelPromptKey(msg)
 		}
 		if key == "esc" {
 			m.mode = ModeNormal
@@ -385,6 +399,10 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.startUndo()
 	case "m":
 		return m.startSelectedTriageAction(TriageMute)
+	case "+":
+		return m.startLabelPrompt(TriageLabelAdd)
+	case "-":
+		return m.startLabelPrompt(TriageLabelRemove)
 	case "r":
 		return m.startRefresh(RefreshDelta)
 	case "R":
@@ -472,6 +490,104 @@ func (m Model) submitCommand() (tea.Model, tea.Cmd) {
 		m.statusMessage = "unknown command: " + command
 		return m, nil
 	}
+}
+
+func (m Model) startLabelPrompt(action TriageActionKind) (tea.Model, tea.Cmd) {
+	if len(m.mailbox.Messages) == 0 {
+		m.statusMessage = "no message selected"
+		m.toastMessage = m.statusMessage
+		return m, nil
+	}
+	if action == TriageLabelRemove && len(removableLabels(m.mailbox.Messages[m.selectedMessage].LabelIDs)) == 0 {
+		m.statusMessage = "no removable labels"
+		m.toastMessage = m.statusMessage
+		return m, nil
+	}
+	m.mode = ModeLabelPrompt
+	m.labelPrompt = labelPromptState{Action: action}
+	if action == TriageLabelAdd {
+		m.statusMessage = "add label"
+	} else {
+		m.statusMessage = "remove label"
+	}
+	return m, nil
+}
+
+func (m Model) handleLabelPromptKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEsc:
+		return m.cancelLabelPrompt()
+	case tea.KeyEnter:
+		return m.submitLabelPrompt()
+	case tea.KeyBackspace, tea.KeyCtrlH:
+		if len(m.labelPrompt.Input) > 0 {
+			m.labelPrompt.Input = m.labelPrompt.Input[:len(m.labelPrompt.Input)-1]
+		}
+		return m, nil
+	}
+
+	key := msg.String()
+	if key == "esc" {
+		return m.cancelLabelPrompt()
+	}
+	if key == "backspace" || key == "ctrl+h" {
+		if len(m.labelPrompt.Input) > 0 {
+			m.labelPrompt.Input = m.labelPrompt.Input[:len(m.labelPrompt.Input)-1]
+		}
+		return m, nil
+	}
+	for _, r := range msg.Runes {
+		m.labelPrompt.Input += string(r)
+	}
+	return m, nil
+}
+
+func (m Model) cancelLabelPrompt() (tea.Model, tea.Cmd) {
+	m.mode = ModeNormal
+	m.labelPrompt = labelPromptState{}
+	m.statusMessage = "label canceled"
+	return m, nil
+}
+
+func (m Model) submitLabelPrompt() (tea.Model, tea.Cmd) {
+	action := m.labelPrompt.Action
+	input := strings.TrimSpace(m.labelPrompt.Input)
+	m.mode = ModeNormal
+	m.labelPrompt = labelPromptState{}
+
+	labelID, labelName, create := m.resolvePromptLabel(action, input)
+	if labelID == "" {
+		m.statusMessage = "label unavailable"
+		m.toastMessage = m.statusMessage
+		return m, nil
+	}
+	request := m.triageRequest(action, labelID)
+	request.LabelName = labelName
+	request.CreateLabel = create
+	request.Add = action == TriageLabelAdd
+	return m.startTriageAction(request)
+}
+
+func (m Model) resolvePromptLabel(action TriageActionKind, input string) (string, string, bool) {
+	if action == TriageLabelRemove && input == "" {
+		message := m.mailbox.Messages[clamp(m.selectedMessage, 0, len(m.mailbox.Messages)-1)]
+		labels := removableLabels(message.LabelIDs)
+		if len(labels) == 0 {
+			return "", "", false
+		}
+		label := m.labelByID(labels[0])
+		return labels[0], firstNonEmpty(label.Name, labels[0]), false
+	}
+	if input == "" {
+		return "", "", false
+	}
+	if label := m.labelByNameOrID(input); label.ID != "" {
+		return labelKey(label), label.Name, false
+	}
+	if action == TriageLabelAdd {
+		return userLabelID(input), input, true
+	}
+	return "", "", false
 }
 
 func (m Model) runAddAccount() tea.Cmd {
@@ -686,13 +802,22 @@ func (m *Model) applyOptimisticAction(request TriageActionRequest) {
 			message.LabelIDs = setLabel(message.LabelIDs, "UNREAD", request.Add)
 		})
 	case TriageLabelAdd:
+		message := m.messageByID(request.MessageID)
+		m.ensureMailboxLabel(request.LabelID, request.LabelName, message.Unread)
 		m.updateMessageCopies(request.MessageID, func(message *Message) {
 			message.LabelIDs = setLabel(message.LabelIDs, request.LabelID, true)
 		})
+		m.addMessageToLabel(request.LabelID, message)
 	case TriageLabelRemove:
+		message := m.messageByID(request.MessageID)
 		m.updateMessageCopies(request.MessageID, func(message *Message) {
 			message.LabelIDs = setLabel(message.LabelIDs, request.LabelID, false)
 		})
+		m.removeMessageFromLabel(request.LabelID, request.MessageID, message.Unread)
+		if len(m.mailbox.Labels) > 0 && labelKey(m.mailbox.Labels[clamp(m.selectedLabel, 0, len(m.mailbox.Labels)-1)]) == request.LabelID {
+			m.mailbox.Messages = removeMessageByID(m.mailbox.Messages, request.MessageID)
+			m.selectedMessage = clamp(m.selectedMessage, 0, len(m.mailbox.Messages)-1)
+		}
 	case TriageMute:
 		m.updateMessageCopies(request.MessageID, func(message *Message) {
 			message.Muted = true
@@ -724,6 +849,74 @@ func (m *Model) updateMessageCopies(messageID string, update func(*Message)) {
 			}
 		}
 		m.mailbox.MessagesByLabel[labelID] = messages
+	}
+}
+
+func (m Model) messageByID(messageID string) Message {
+	for _, message := range m.mailbox.Messages {
+		if message.ID == messageID {
+			return message
+		}
+	}
+	for _, messages := range m.mailbox.MessagesByLabel {
+		for _, message := range messages {
+			if message.ID == messageID {
+				return message
+			}
+		}
+	}
+	return Message{ID: messageID}
+}
+
+func (m *Model) ensureMailboxLabel(labelID string, labelName string, unread bool) {
+	if labelID == "" {
+		return
+	}
+	for i := range m.mailbox.Labels {
+		if labelKey(m.mailbox.Labels[i]) == labelID {
+			if unread {
+				m.mailbox.Labels[i].Unread++
+			}
+			return
+		}
+	}
+	count := 0
+	if unread {
+		count = 1
+	}
+	m.mailbox.Labels = append(m.mailbox.Labels, Label{ID: labelID, Name: firstNonEmpty(labelName, labelID), Unread: count})
+}
+
+func (m *Model) addMessageToLabel(labelID string, message Message) {
+	if labelID == "" {
+		return
+	}
+	messages := m.mailbox.MessagesByLabel[labelID]
+	for _, existing := range messages {
+		if existing.ID == message.ID {
+			return
+		}
+	}
+	message.LabelIDs = setLabel(message.LabelIDs, labelID, true)
+	if m.mailbox.MessagesByLabel == nil {
+		m.mailbox.MessagesByLabel = map[string][]Message{}
+	}
+	m.mailbox.MessagesByLabel[labelID] = append([]Message{message}, messages...)
+}
+
+func (m *Model) removeMessageFromLabel(labelID string, messageID string, unread bool) {
+	if labelID == "" {
+		return
+	}
+	if m.mailbox.MessagesByLabel != nil {
+		m.mailbox.MessagesByLabel[labelID] = removeMessageByID(m.mailbox.MessagesByLabel[labelID], messageID)
+	}
+	if unread {
+		for i := range m.mailbox.Labels {
+			if labelKey(m.mailbox.Labels[i]) == labelID && m.mailbox.Labels[i].Unread > 0 {
+				m.mailbox.Labels[i].Unread--
+			}
+		}
 	}
 }
 
@@ -855,6 +1048,60 @@ func setLabel(labels []string, labelID string, present bool) []string {
 	}
 	out := append([]string{}, labels[:index]...)
 	return append(out, labels[index+1:]...)
+}
+
+func (m Model) labelByNameOrID(value string) Label {
+	for _, label := range m.mailbox.Labels {
+		if strings.EqualFold(label.Name, value) || strings.EqualFold(labelKey(label), value) {
+			return label
+		}
+	}
+	return Label{}
+}
+
+func (m Model) labelByID(labelID string) Label {
+	for _, label := range m.mailbox.Labels {
+		if labelKey(label) == labelID {
+			return label
+		}
+	}
+	return Label{}
+}
+
+func removableLabels(labelIDs []string) []string {
+	system := map[string]bool{
+		"INBOX":   true,
+		"UNREAD":  true,
+		"STARRED": true,
+		"SPAM":    true,
+		"TRASH":   true,
+		"MUTED":   true,
+	}
+	out := make([]string, 0, len(labelIDs))
+	for _, labelID := range labelIDs {
+		if labelID == "" || system[labelID] {
+			continue
+		}
+		out = append(out, labelID)
+	}
+	return out
+}
+
+func userLabelID(name string) string {
+	var b strings.Builder
+	b.WriteString("Label_")
+	for _, r := range strings.TrimSpace(name) {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+		default:
+			b.WriteByte('_')
+		}
+	}
+	if b.Len() == len("Label_") {
+		return ""
+	}
+	return b.String()
 }
 
 func cloneMailbox(mailbox Mailbox) Mailbox {

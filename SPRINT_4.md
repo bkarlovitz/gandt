@@ -49,7 +49,7 @@ Grounded in `prd.md` sections 9, 10, 13.6, 17, 18, 20, and milestone M2.
   - Expire undo state cleanly after the time window or after a new action supersedes it.
   - Validation: `go test ./internal/ui ./internal/gmail` covers undo success, undo expiration, and unavailable undo messaging.
 
-- [ ] **Task 4.8**: Add label add/remove prompts
+- [x] **Task 4.8**: Add label add/remove prompts
   - Prompt for label selection or creation when the user presses `+`.
   - Prompt for removable labels when the user presses `-`.
   - Update cached label mappings and label counts after success.

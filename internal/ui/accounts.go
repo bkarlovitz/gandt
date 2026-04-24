@@ -97,14 +97,15 @@ const (
 )
 
 type TriageActionRequest struct {
-	Kind      TriageActionKind
-	Account   string
-	MessageID string
-	ThreadID  string
-	LabelID   string
-	LabelName string
-	Add       bool
-	Undo      bool
+	Kind        TriageActionKind
+	Account     string
+	MessageID   string
+	ThreadID    string
+	LabelID     string
+	LabelName   string
+	Add         bool
+	Undo        bool
+	CreateLabel bool
 }
 
 type TriageActionResult struct {

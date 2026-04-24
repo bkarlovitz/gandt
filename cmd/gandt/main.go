@@ -263,14 +263,33 @@ func buildTriageActor(paths config.Paths) ui.TriageActor {
 			}
 		}
 
-		repo := cache.NewOptimisticActionRepository(db)
-		snapshot, err := repo.Apply(ctx, cacheActionForRequest(account.ID, request))
+		gmailClient, err := gmailClientForAccount(ctx, account.ID)
 		if err != nil {
 			return ui.TriageActionResult{}, err
 		}
-		gmailClient, err := gmailClientForAccount(ctx, account.ID)
+		if request.CreateLabel {
+			label, err := gmailClient.CreateLabel(ctx, gandtgmail.LabelCreateRequest{Name: request.LabelName})
+			if err != nil {
+				return ui.TriageActionResult{}, err
+			}
+			request.LabelID = label.ID
+			if err := cache.NewLabelRepository(db).Upsert(ctx, cache.Label{
+				AccountID: account.ID,
+				ID:        label.ID,
+				Name:      label.Name,
+				Type:      firstNonEmptyString(label.Type, "user"),
+				Unread:    label.Unread,
+				Total:     label.Total,
+				ColorBG:   label.ColorBG,
+				ColorFG:   label.ColorFG,
+			}); err != nil {
+				return ui.TriageActionResult{}, err
+			}
+		}
+
+		repo := cache.NewOptimisticActionRepository(db)
+		snapshot, err := repo.Apply(ctx, cacheActionForRequest(account.ID, request))
 		if err != nil {
-			_ = repo.Revert(ctx, snapshot)
 			return ui.TriageActionResult{}, err
 		}
 		if err := dispatchGmailAction(ctx, gmailClient, request); err != nil {
