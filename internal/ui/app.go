@@ -78,6 +78,9 @@ type Model struct {
 	loadingThreadID       string
 	manualRefresher       ManualRefresher
 	refreshingAccount     string
+	searchRunner          SearchRunner
+	searchGeneration      int
+	searchCancel          context.CancelFunc
 	toastMessage          string
 	triageActor           TriageActor
 	cacheDashboardLoader  CacheDashboardLoader
@@ -200,6 +203,14 @@ func WithManualRefresher(refresher ManualRefresher) Option {
 	return func(m *Model) {
 		if refresher != nil {
 			m.manualRefresher = refresher
+		}
+	}
+}
+
+func WithSearchRunner(runner SearchRunner) Option {
+	return func(m *Model) {
+		if runner != nil {
+			m.searchRunner = runner
 		}
 	}
 }
@@ -375,6 +386,26 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.statusMessage = summary
 		m.toastMessage = summary
+	case searchDoneMsg:
+		if msg.Generation != m.searchGeneration || msg.Request.Query != m.search.Query || msg.Request.Mode != m.search.Mode {
+			return m, nil
+		}
+		m.search.Loading = false
+		m.search.ActiveAccount = msg.Request.Account
+		if msg.Err != nil {
+			if errors.Is(msg.Err, context.Canceled) {
+				return m, nil
+			}
+			m.search.Error = msg.Err.Error()
+			m.search.Results = nil
+			m.statusMessage = "search failed: " + msg.Err.Error()
+			return m, nil
+		}
+		m.search.Error = ""
+		m.search.Results = append([]Message{}, msg.Result.Messages...)
+		m.selectedMessage = 0
+		m.selectedThreadMessage = 0
+		m.statusMessage = fmt.Sprintf("search complete: %d results", len(m.search.Results))
 	case triageDoneMsg:
 		snapshot, ok := m.pendingActions[msg.ID]
 		delete(m.pendingActions, msg.ID)
@@ -773,8 +804,7 @@ func (m Model) handleSearchKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.exitSearchMode("search canceled")
 		return m, nil
 	case tea.KeyEnter:
-		m.submitSearch()
-		return m, nil
+		return m, m.submitSearch()
 	case tea.KeyBackspace, tea.KeyCtrlH:
 		m.search.Query = trimLastRune(m.search.Query)
 		m.search.Error = ""
@@ -785,12 +815,12 @@ func (m Model) handleSearchKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "esc":
 		m.exitSearchMode("search canceled")
 	case "enter":
-		m.submitSearch()
+		return m, m.submitSearch()
 	case "backspace", "ctrl+h":
 		m.search.Query = trimLastRune(m.search.Query)
 		m.search.Error = ""
 	case "ctrl+/", "ctrl+_", "ctrl+?":
-		m.toggleSearchMode()
+		return m, m.toggleSearchMode()
 	default:
 		for _, r := range msg.Runes {
 			m.search.Query += string(r)
@@ -800,7 +830,7 @@ func (m Model) handleSearchKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m *Model) submitSearch() {
+func (m *Model) submitSearch() tea.Cmd {
 	m.search.Query = strings.TrimSpace(m.search.Query)
 	m.search.ActiveAccount = m.mailbox.Account
 	m.search.Submitted = true
@@ -809,16 +839,25 @@ func (m *Model) submitSearch() {
 	if m.search.Query == "" {
 		m.search.Error = "enter a search query"
 		m.statusMessage = m.search.Error
-		return
+		return nil
 	}
 	m.selectedMessage = 0
 	m.selectedThreadMessage = 0
 	m.readerOpen = false
 	m.focus = PaneList
 	m.statusMessage = fmt.Sprintf("search submitted: %s [%s]", m.search.Query, m.search.Mode)
+	if m.searchRunner == nil {
+		return nil
+	}
+	return m.startSearch(SearchRequest{
+		Account: m.mailbox.Account,
+		Query:   m.search.Query,
+		Mode:    m.search.Mode,
+		Limit:   100,
+	})
 }
 
-func (m *Model) toggleSearchMode() {
+func (m *Model) toggleSearchMode() tea.Cmd {
 	if m.search.Mode == SearchModeOffline {
 		m.search.Mode = SearchModeOnline
 	} else {
@@ -826,13 +865,35 @@ func (m *Model) toggleSearchMode() {
 	}
 	m.search.Error = ""
 	if strings.TrimSpace(m.search.Query) != "" {
-		m.submitSearch()
-		return
+		return m.submitSearch()
 	}
 	m.statusMessage = fmt.Sprintf("search %s", m.search.Mode)
+	return nil
+}
+
+func (m *Model) startSearch(request SearchRequest) tea.Cmd {
+	if m.searchCancel != nil {
+		m.searchCancel()
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	m.searchCancel = cancel
+	m.searchGeneration++
+	generation := m.searchGeneration
+	m.search.Loading = true
+	m.search.Results = nil
+	m.search.Error = ""
+	m.statusMessage = fmt.Sprintf("searching %s...", request.Mode)
+	return func() tea.Msg {
+		result, err := m.searchRunner.Search(ctx, request)
+		return searchDoneMsg{Generation: generation, Request: request, Result: result, Err: err}
+	}
 }
 
 func (m *Model) exitSearchMode(status string) {
+	if m.searchCancel != nil {
+		m.searchCancel()
+		m.searchCancel = nil
+	}
 	ctx := m.search.PreviousMailbox
 	m.mode = ModeNormal
 	m.selectedLabel = clamp(ctx.SelectedLabel, 0, len(m.mailbox.Labels)-1)

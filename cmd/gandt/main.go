@@ -63,6 +63,7 @@ func main() {
 		ui.WithCredentialReplacer(buildCredentialReplacer()),
 		ui.WithThreadLoader(buildThreadLoader(paths, cfg)),
 		ui.WithManualRefresher(buildManualRefresher(paths, cfg)),
+		ui.WithSearchRunner(buildSearchRunner(paths)),
 		ui.WithTriageActor(buildTriageActor(paths)),
 		ui.WithCacheDashboardLoader(buildCacheDashboardLoader(paths, cfg)),
 		ui.WithCachePolicyStore(buildCachePolicyStore(paths, cfg)),
@@ -231,6 +232,47 @@ func buildManualRefresher(paths config.Paths, cfg config.Config) ui.ManualRefres
 			return ui.RefreshResult{}, err
 		}
 		return ui.RefreshResult{Summary: result.Status}, nil
+	})
+}
+
+func buildSearchRunner(paths config.Paths) ui.SearchRunner {
+	return ui.SearchRunnerFunc(func(ctx context.Context, request ui.SearchRequest) (ui.SearchResult, error) {
+		if request.Mode != ui.SearchModeOnline {
+			return ui.SearchResult{}, fmt.Errorf("%s search unavailable", request.Mode)
+		}
+		db, err := cache.Open(ctx, paths)
+		if err != nil {
+			return ui.SearchResult{}, err
+		}
+		defer db.Close()
+		if err := cache.Migrate(ctx, db); err != nil {
+			return ui.SearchResult{}, err
+		}
+		account, err := cache.NewAccountRepository(db).GetByEmail(ctx, request.Account)
+		if err != nil {
+			return ui.SearchResult{}, err
+		}
+		gmailClient, err := gmailClientForAccount(ctx, account.ID)
+		if err != nil {
+			return ui.SearchResult{}, err
+		}
+		online, err := gandtsync.NewOnlineSearcher(gmailClient).Search(ctx, gandtsync.OnlineSearchRequest{
+			Query:      request.Query,
+			MaxResults: request.Limit,
+		})
+		if err != nil {
+			return ui.SearchResult{}, offlineIfUnavailable(err)
+		}
+		messages := make([]ui.Message, 0, len(online.Messages))
+		for _, message := range online.Messages {
+			messages = append(messages, uiMessageFromGmailMetadata(message))
+		}
+		return ui.SearchResult{
+			Account:  request.Account,
+			Query:    request.Query,
+			Mode:     request.Mode,
+			Messages: messages,
+		}, nil
 	})
 }
 
@@ -1174,6 +1216,46 @@ func uiMessage(summary cache.MessageSummary) ui.Message {
 		CacheState:      cacheState,
 		AttachmentCount: summary.AttachmentCount,
 	}
+}
+
+func uiMessageFromGmailMetadata(message gandtgmail.Message) ui.Message {
+	from, address := displaySender(gmailHeaderValue(message.Headers, "From"))
+	return ui.Message{
+		ID:         message.ID,
+		ThreadID:   firstNonEmptyString(message.ThreadID, message.ID),
+		From:       from,
+		Address:    address,
+		Subject:    gmailHeaderValue(message.Headers, "Subject"),
+		Date:       displayDate(timePtr(message.InternalDate), parsedGmailHeaderDate(message.Headers)),
+		Snippet:    message.Snippet,
+		Unread:     hasString(message.LabelIDs, "UNREAD"),
+		Starred:    hasString(message.LabelIDs, "STARRED"),
+		Muted:      hasString(message.LabelIDs, "MUTED"),
+		LabelIDs:   append([]string{}, message.LabelIDs...),
+		CacheState: "metadata",
+	}
+}
+
+func parsedGmailHeaderDate(headers []gandtgmail.MessageHeader) *time.Time {
+	value := gmailHeaderValue(headers, "Date")
+	if strings.TrimSpace(value) == "" {
+		return nil
+	}
+	parsed, err := mail.ParseDate(value)
+	if err != nil {
+		return nil
+	}
+	utc := parsed.UTC()
+	return &utc
+}
+
+func hasString(values []string, needle string) bool {
+	for _, value := range values {
+		if value == needle {
+			return true
+		}
+	}
+	return false
 }
 
 func cachedUIThreadMessage(ctx context.Context, attachments cache.AttachmentRepository, cfg config.Config, accountID string, message cache.Message) (ui.ThreadMessage, error) {

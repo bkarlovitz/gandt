@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"context"
 	"testing"
 
 	"github.com/bkarlovitz/gandt/internal/config"
@@ -175,6 +176,95 @@ func TestSearchDefaultsOfflineWhenAccountOffline(t *testing.T) {
 	if got.search.Mode != SearchModeOffline {
 		t.Fatalf("search mode = %s, want offline", got.search.Mode)
 	}
+}
+
+func TestSearchSubmitRunsOnlineSearchAndRendersResults(t *testing.T) {
+	runner := &fakeSearchRunner{
+		result: SearchResult{
+			Messages: []Message{{ID: "msg-1", ThreadID: "thread-1", From: "Ada", Subject: "Search hit", Snippet: "matched text", CacheState: "metadata"}},
+		},
+	}
+	model := New(config.Default(), WithSearchRunner(runner))
+
+	updated, _ := model.Update(keyMsg("/"))
+	model = updated.(Model)
+	for _, r := range "subject:plan" {
+		updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		model = updated.(Model)
+	}
+	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(Model)
+	if cmd == nil || !model.search.Loading {
+		t.Fatalf("search loading=%v cmd=%T, want loading command", model.search.Loading, cmd)
+	}
+	msg := cmd().(searchDoneMsg)
+	updated, _ = model.Update(msg)
+	model = updated.(Model)
+
+	if len(runner.requests) != 1 || runner.requests[0].Query != "subject:plan" || runner.requests[0].Mode != SearchModeOnline {
+		t.Fatalf("requests = %#v, want online subject query", runner.requests)
+	}
+	if model.search.Loading || len(model.search.Results) != 1 || model.search.Results[0].Subject != "Search hit" {
+		t.Fatalf("results = loading %v %#v, want rendered search hit", model.search.Loading, model.search.Results)
+	}
+	if model.statusMessage != "search complete: 1 results" {
+		t.Fatalf("status = %q, want search complete", model.statusMessage)
+	}
+}
+
+func TestSearchSubmitCancelsPreviousSearchAndIgnoresStaleResults(t *testing.T) {
+	runner := &fakeSearchRunner{}
+	model := New(config.Default(), WithSearchRunner(runner))
+	updated, _ := model.Update(keyMsg("/"))
+	model = updated.(Model)
+	for _, r := range "first" {
+		updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		model = updated.(Model)
+	}
+	updated, firstCmd := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(Model)
+	firstGeneration := model.searchGeneration
+
+	model.search.Query = "second"
+	updated, secondCmd := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(Model)
+	if firstCmd == nil || secondCmd == nil {
+		t.Fatalf("search commands = %T/%T, want both commands", firstCmd, secondCmd)
+	}
+	_ = firstCmd()
+	if len(runner.canceled) != 1 || !runner.canceled[0] {
+		t.Fatalf("cancel state = cmds %T/%T canceled %#v", firstCmd, secondCmd, runner.canceled)
+	}
+
+	updated, _ = model.Update(searchDoneMsg{
+		Generation: firstGeneration,
+		Request:    SearchRequest{Account: model.mailbox.Account, Query: "first", Mode: SearchModeOnline},
+		Result:     SearchResult{Messages: []Message{{Subject: "stale"}}},
+	})
+	model = updated.(Model)
+	if len(model.search.Results) != 0 {
+		t.Fatalf("results = %#v, want stale result ignored", model.search.Results)
+	}
+}
+
+type fakeSearchRunner struct {
+	result   SearchResult
+	requests []SearchRequest
+	canceled []bool
+}
+
+func (f *fakeSearchRunner) Search(ctx context.Context, request SearchRequest) (SearchResult, error) {
+	f.requests = append(f.requests, request)
+	if ctx.Err() != nil {
+		f.canceled = append(f.canceled, true)
+		return SearchResult{}, ctx.Err()
+	}
+	f.canceled = append(f.canceled, false)
+	result := f.result
+	result.Account = request.Account
+	result.Query = request.Query
+	result.Mode = request.Mode
+	return result, nil
 }
 
 func keyMsg(value string) tea.KeyMsg {

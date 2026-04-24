@@ -1,6 +1,9 @@
 package ui
 
-import "errors"
+import (
+	"context"
+	"errors"
+)
 
 type AccountAddResult struct {
 	Account         string
@@ -105,6 +108,30 @@ type ManualRefresherFunc func(RefreshRequest) (RefreshResult, error)
 
 func (fn ManualRefresherFunc) Refresh(request RefreshRequest) (RefreshResult, error) {
 	return fn(request)
+}
+
+type SearchRequest struct {
+	Account string
+	Query   string
+	Mode    SearchMode
+	Limit   int
+}
+
+type SearchResult struct {
+	Account  string
+	Query    string
+	Mode     SearchMode
+	Messages []Message
+}
+
+type SearchRunner interface {
+	Search(context.Context, SearchRequest) (SearchResult, error)
+}
+
+type SearchRunnerFunc func(context.Context, SearchRequest) (SearchResult, error)
+
+func (fn SearchRunnerFunc) Search(ctx context.Context, request SearchRequest) (SearchResult, error) {
+	return fn(ctx, request)
 }
 
 type TriageActionKind string

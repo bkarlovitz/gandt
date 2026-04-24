@@ -13,7 +13,7 @@ Grounded in `prd.md` sections 7, 9, 13.4, 15, 18, 20, and milestone M4.
   - Exit search cleanly with `Esc` and restore the previous mailbox context.
   - Validation: `go test ./internal/ui/...` covers entering, editing, submitting, toggling, canceling, and exiting search.
 
-- [ ] **Task 7.2**: Implement online Gmail search
+- [x] **Task 7.2**: Implement online Gmail search
   - Pass the user query verbatim to `users.messages.list?q=...` for the active account.
   - Fetch enough metadata to render search results consistently with normal mailbox rows.
   - Respect pagination and cancellation when a user starts a new query.

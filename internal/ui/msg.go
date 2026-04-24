@@ -38,6 +38,13 @@ type refreshDoneMsg struct {
 	Err     error
 }
 
+type searchDoneMsg struct {
+	Generation int
+	Request    SearchRequest
+	Result     SearchResult
+	Err        error
+}
+
 type triageDoneMsg struct {
 	ID      int
 	Request TriageActionRequest
