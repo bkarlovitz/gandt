@@ -56,6 +56,12 @@ func WithAccountAdder(adder AccountAdder) Option {
 	}
 }
 
+func WithMailbox(mailbox Mailbox) Option {
+	return func(m *Model) {
+		m.mailbox = mailbox
+	}
+}
+
 func New(cfg config.Config, opts ...Option) Model {
 	model := Model{
 		config:  cfg,
@@ -88,8 +94,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.statusMessage = fmt.Sprintf("added account %s", msg.Result.Account)
 		if len(msg.Result.Labels) > 0 {
-			m.mailbox.Account = msg.Result.Account
-			m.mailbox.Labels = msg.Result.Labels
+			m.mailbox = RealAccountMailbox(msg.Result.Account, msg.Result.Labels)
 			m.selectedLabel = clamp(m.selectedLabel, 0, len(m.mailbox.Labels)-1)
 		}
 	case tea.KeyMsg:

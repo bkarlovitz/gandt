@@ -67,7 +67,7 @@ Grounded in `prd.md` sections 7, 8, 9, 10, 11, 16, 19, 20, and milestone M1.
   - Preserve the fake inbox fallback when no account is configured.
   - Validation: `go test ./internal/ui/...` simulates command submission and verifies loading/success/error messages.
 
-- [ ] **Task 2.11**: Add account list rendering
+- [x] **Task 2.11**: Add account list rendering
   - Replace the fake header account with real account data after bootstrap.
   - Render labels from SQLite with unread counts and cache-depth indicators where available.
   - Show clear empty states for no accounts, no labels, and auth failure.

@@ -49,7 +49,11 @@ func main() {
 	}
 	defer logFile.Close()
 
-	program := tea.NewProgram(ui.New(cfg, ui.WithAccountAdder(buildAccountAdder(paths))), tea.WithAltScreen())
+	uiOptions := []ui.Option{ui.WithAccountAdder(buildAccountAdder(paths))}
+	if mailbox, ok := loadInitialMailbox(paths); ok {
+		uiOptions = append(uiOptions, ui.WithMailbox(mailbox))
+	}
+	program := tea.NewProgram(ui.New(cfg, uiOptions...), tea.WithAltScreen())
 	if _, err := program.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "gandt: %v\n", err)
 		os.Exit(1)
@@ -97,20 +101,49 @@ func buildAccountAdder(paths config.Paths) ui.AccountAdder {
 		if err != nil {
 			return ui.AccountAddResult{}, err
 		}
-		return ui.AccountAddResult{
-			Account: account.Email,
-			Labels:  uiLabels(labels),
-		}, nil
+		return ui.AccountAddResult{Account: account.Email, Labels: uiLabels(cache.NewSyncPolicyRepository(db), account.ID, labels)}, nil
 	})
 }
 
-func uiLabels(labels []cache.Label) []ui.Label {
+func loadInitialMailbox(paths config.Paths) (ui.Mailbox, bool) {
+	ctx := context.Background()
+	db, err := cache.Open(ctx, paths)
+	if err != nil {
+		return ui.AuthFailureMailbox(err.Error()), true
+	}
+	defer db.Close()
+	if err := cache.Migrate(ctx, db); err != nil {
+		return ui.AuthFailureMailbox(err.Error()), true
+	}
+
+	accounts, err := cache.NewAccountRepository(db).List(ctx)
+	if err != nil {
+		return ui.AuthFailureMailbox(err.Error()), true
+	}
+	if len(accounts) == 0 {
+		return ui.NoAccountMailbox(), true
+	}
+
+	account := accounts[0]
+	labels, err := cache.NewLabelRepository(db).List(ctx, account.ID)
+	if err != nil {
+		return ui.AuthFailureMailbox(err.Error()), true
+	}
+	return ui.RealAccountMailbox(account.Email, uiLabels(cache.NewSyncPolicyRepository(db), account.ID, labels)), true
+}
+
+func uiLabels(policies cache.SyncPolicyRepository, accountID string, labels []cache.Label) []ui.Label {
 	out := make([]ui.Label, 0, len(labels))
 	for _, label := range labels {
+		depth := ""
+		if policy, err := policies.EffectiveForLabel(context.Background(), accountID, label.ID); err == nil {
+			depth = policy.Depth
+		}
 		out = append(out, ui.Label{
-			Name:   label.Name,
-			Unread: label.Unread,
-			System: label.Type == "system",
+			Name:       label.Name,
+			Unread:     label.Unread,
+			System:     label.Type == "system",
+			CacheDepth: depth,
 		})
 	}
 	return out

@@ -6,15 +6,20 @@ import (
 )
 
 type Mailbox struct {
-	Account  string
-	Labels   []Label
-	Messages []Message
+	Account       string
+	Labels        []Label
+	Messages      []Message
+	Real          bool
+	NoAccounts    bool
+	Bootstrapping bool
+	AuthError     string
 }
 
 type Label struct {
-	Name   string
-	Unread int
-	System bool
+	Name       string
+	Unread     int
+	System     bool
+	CacheDepth string
 }
 
 type Message struct {
@@ -109,6 +114,34 @@ func fakeMailbox() Mailbox {
 	}
 }
 
+func NoAccountMailbox() Mailbox {
+	return Mailbox{
+		Account:    "no accounts",
+		NoAccounts: true,
+	}
+}
+
+func BootstrappingMailbox() Mailbox {
+	mailbox := fakeMailbox()
+	mailbox.Bootstrapping = true
+	return mailbox
+}
+
+func AuthFailureMailbox(message string) Mailbox {
+	mailbox := fakeMailbox()
+	mailbox.AuthError = message
+	return mailbox
+}
+
+func RealAccountMailbox(account string, labels []Label) Mailbox {
+	return Mailbox{
+		Account:  account,
+		Labels:   labels,
+		Messages: nil,
+		Real:     true,
+	}
+}
+
 func (m Model) renderMailbox() string {
 	width := m.width
 	if width <= 0 {
@@ -151,7 +184,7 @@ func (m Model) renderMailbox() string {
 		}
 	}
 
-	header := fmt.Sprintf("G&T | %s | fake inbox | no network", m.mailbox.Account)
+	header := m.mailboxHeader()
 	if m.statusMessage != "" {
 		header = fmt.Sprintf("%s | %s", header, m.statusMessage)
 	}
@@ -165,8 +198,28 @@ func (m Model) renderMailbox() string {
 	}, "\n"))
 }
 
+func (m Model) mailboxHeader() string {
+	switch {
+	case m.mailbox.AuthError != "":
+		return fmt.Sprintf("G&T | auth failure: %s | fake inbox | no network", m.mailbox.AuthError)
+	case m.mailbox.Bootstrapping:
+		return fmt.Sprintf("G&T | %s | bootstrapping account", m.mailbox.Account)
+	case m.mailbox.NoAccounts:
+		return "G&T | no accounts configured"
+	case m.mailbox.Real:
+		return fmt.Sprintf("G&T | %s | Gmail cache", m.mailbox.Account)
+	default:
+		return fmt.Sprintf("G&T | %s | fake inbox | no network", m.mailbox.Account)
+	}
+}
+
 func (m Model) renderLabels(width, maxRows int) []string {
 	lines := []string{"Labels"}
+	if len(m.mailbox.Labels) == 0 {
+		lines = append(lines, "", fit("No labels", width))
+		return limitLines(lines, maxRows, width)
+	}
+
 	userLabelStarted := false
 	for i, label := range m.mailbox.Labels {
 		if !label.System && !userLabelStarted {
@@ -182,15 +235,26 @@ func (m Model) renderLabels(width, maxRows int) []string {
 		if label.Unread > 0 {
 			count = fmt.Sprintf("%d", label.Unread)
 		}
-		lines = append(lines, fit(fmt.Sprintf("%s%-13s %4s", prefix, label.Name, count), width))
+		if label.CacheDepth == "" {
+			lines = append(lines, fit(fmt.Sprintf("%s%-13s %4s", prefix, label.Name, count), width))
+			continue
+		}
+		lines = append(lines, fit(fmt.Sprintf("%s%s %-11s %4s", prefix, depthIndicator(label.CacheDepth), label.Name, count), width))
 	}
 
 	return limitLines(lines, maxRows, width)
 }
 
 func (m Model) renderMessageList(width, maxRows int) []string {
-	currentLabel := m.mailbox.Labels[m.selectedLabel].Name
+	currentLabel := "No labels"
+	if len(m.mailbox.Labels) > 0 {
+		currentLabel = m.mailbox.Labels[m.selectedLabel].Name
+	}
 	lines := []string{currentLabel}
+	if len(m.mailbox.Messages) == 0 {
+		lines = append(lines, "", fit("No cached messages", width))
+		return limitLines(lines, maxRows, width)
+	}
 	for i, message := range m.mailbox.Messages {
 		prefix := "  "
 		if i == m.selectedMessage {
@@ -218,6 +282,14 @@ func (m Model) renderMessageList(width, maxRows int) []string {
 }
 
 func (m Model) renderReader(width, maxRows int) []string {
+	if len(m.mailbox.Messages) == 0 {
+		return limitLines([]string{
+			fit("Reader", width),
+			fit("", width),
+			fit("No message selected", width),
+		}, maxRows, width)
+	}
+
 	message := m.mailbox.Messages[m.selectedMessage]
 	lines := []string{
 		"Reader",
@@ -238,6 +310,21 @@ func (m Model) renderReader(width, maxRows int) []string {
 		lines[i] = fit(lines[i], width)
 	}
 	return limitLines(lines, maxRows, width)
+}
+
+func depthIndicator(depth string) string {
+	switch depth {
+	case "full":
+		return "F"
+	case "body":
+		return "B"
+	case "metadata":
+		return "M"
+	case "none":
+		return "-"
+	default:
+		return "?"
+	}
 }
 
 func (m Model) renderSelectableLine(text string, width int, selected bool) string {
