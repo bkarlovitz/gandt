@@ -213,6 +213,9 @@ func (m Model) renderMailbox() string {
 	}
 
 	header := m.mailboxHeader()
+	if m.mode == ModeSearch {
+		header = m.searchHeader()
+	}
 	if m.statusMessage != "" {
 		header = fmt.Sprintf("%s | %s", header, m.statusMessage)
 	}
@@ -329,6 +332,9 @@ func (m Model) renderLabels(width, maxRows int) []string {
 
 func (m Model) renderMessageList(width, maxRows int) []string {
 	currentLabel := "No labels"
+	if m.mode == ModeSearch {
+		return m.renderSearchMessageList(width, maxRows)
+	}
 	if len(m.mailbox.Labels) > 0 {
 		currentLabel = m.mailbox.Labels[m.selectedLabel].Name
 	}
@@ -364,6 +370,58 @@ func (m Model) renderMessageList(width, maxRows int) []string {
 		)
 	}
 
+	return limitLines(lines, maxRows, width)
+}
+
+func (m Model) searchHeader() string {
+	query := m.search.Query
+	if query == "" {
+		query = "<empty>"
+	}
+	return fmt.Sprintf("G&T | %s | search: %s [%s]", m.mailbox.Account, query, m.search.Mode)
+}
+
+func (m Model) renderSearchMessageList(width, maxRows int) []string {
+	query := m.search.Query
+	if query == "" {
+		query = "<empty>"
+	}
+	lines := []string{fmt.Sprintf("search: %s [%s]", query, m.search.Mode)}
+	switch {
+	case m.search.Loading:
+		lines = append(lines, "", fit("Searching...", width))
+	case m.search.Error != "":
+		lines = append(lines, "", fit(m.search.Error, width))
+	case len(m.search.Results) == 0:
+		lines = append(lines, "", fit("No search results", width))
+	default:
+		for i, message := range m.search.Results {
+			prefix := "  "
+			if i == m.selectedMessage {
+				prefix = "> "
+			}
+			thread := ""
+			if message.ThreadCount > 1 {
+				thread = fmt.Sprintf(" [%d]", message.ThreadCount)
+			}
+			attachment := ""
+			if message.AttachmentCount > 0 {
+				attachment = " A"
+			}
+			unread := " "
+			if message.Unread {
+				unread = "*"
+			}
+			lines = append(lines,
+				m.renderSelectableLine(
+					fmt.Sprintf("%s%-12s %5s %s%s %s%s", prefix, message.From, message.Date, message.Subject, thread, unread, attachment),
+					width,
+					i == m.selectedMessage,
+				),
+				fit("  "+messageListDetail(message), width),
+			)
+		}
+	}
 	return limitLines(lines, maxRows, width)
 }
 

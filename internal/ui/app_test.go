@@ -104,10 +104,87 @@ func TestModelNavigationUpdatesLabelSelection(t *testing.T) {
 	}
 }
 
+func TestSearchModeEnterEditSubmitToggleAndExit(t *testing.T) {
+	model := New(config.Default())
+
+	updated, cmd := model.Update(keyMsg("/"))
+	model = updated.(Model)
+	if cmd != nil || model.mode != ModeSearch || model.search.ActiveAccount != model.mailbox.Account {
+		t.Fatalf("search enter = mode %v account %q cmd %T", model.mode, model.search.ActiveAccount, cmd)
+	}
+
+	for _, r := range "from:alice" {
+		updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		model = updated.(Model)
+	}
+	if model.search.Query != "from:alice" {
+		t.Fatalf("query = %q, want from:alice", model.search.Query)
+	}
+
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+	model = updated.(Model)
+	if model.search.Query != "from:alic" {
+		t.Fatalf("query after backspace = %q, want from:alic", model.search.Query)
+	}
+
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyCtrlUnderscore})
+	model = updated.(Model)
+	if model.search.Mode != SearchModeOffline || !model.search.Submitted {
+		t.Fatalf("toggle state = %s submitted=%v, want offline submitted", model.search.Mode, model.search.Submitted)
+	}
+
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(Model)
+	if !model.search.Submitted || model.statusMessage != "search submitted: from:alic [offline]" {
+		t.Fatalf("submit state = submitted %v status %q", model.search.Submitted, model.statusMessage)
+	}
+
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	model = updated.(Model)
+	if model.mode != ModeNormal || model.statusMessage != "search canceled" {
+		t.Fatalf("exit state = mode %v status %q", model.mode, model.statusMessage)
+	}
+}
+
+func TestSearchExitRestoresPreviousMailboxContext(t *testing.T) {
+	model := New(config.Default())
+	model.selectedMessage = 2
+	model.focus = PaneReader
+	model.readerOpen = true
+
+	updated, _ := model.Update(keyMsg("/"))
+	model = updated.(Model)
+	model.selectedMessage = 0
+	model.focus = PaneList
+	model.readerOpen = false
+
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	model = updated.(Model)
+	if model.selectedMessage != 2 || model.focus != PaneReader || !model.readerOpen {
+		t.Fatalf("restored selected=%d focus=%v reader=%v, want prior context", model.selectedMessage, model.focus, model.readerOpen)
+	}
+}
+
+func TestSearchDefaultsOfflineWhenAccountOffline(t *testing.T) {
+	model := New(config.Default())
+	model.offline = true
+
+	updated, _ := model.Update(keyMsg("/"))
+	got := updated.(Model)
+
+	if got.search.Mode != SearchModeOffline {
+		t.Fatalf("search mode = %s, want offline", got.search.Mode)
+	}
+}
+
 func keyMsg(value string) tea.KeyMsg {
 	switch value {
 	case "ctrl+c":
 		return tea.KeyMsg{Type: tea.KeyCtrlC}
+	case "ctrl+/":
+		return tea.KeyMsg{Type: tea.KeyCtrlUnderscore}
+	case "esc":
+		return tea.KeyMsg{Type: tea.KeyEsc}
 	case "up":
 		return tea.KeyMsg{Type: tea.KeyUp}
 	case "down":

@@ -7,7 +7,7 @@ Users can run online Gmail searches, toggle to offline FTS search over cached ma
 Grounded in `prd.md` sections 7, 9, 13.4, 15, 18, 20, and milestone M4.
 
 ## Tasks
-- [ ] **Task 7.1**: Add search state and mode handling
+- [x] **Task 7.1**: Add search state and mode handling
   - Implement Search mode entered by `/`.
   - Track query text, online/offline mode, active account, loading state, result set, and errors.
   - Exit search cleanly with `Esc` and restore the previous mailbox context.

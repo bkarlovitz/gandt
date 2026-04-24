@@ -36,6 +36,13 @@ const (
 	PaneReader
 )
 
+type SearchMode string
+
+const (
+	SearchModeOnline  SearchMode = "online"
+	SearchModeOffline SearchMode = "offline"
+)
+
 type Model struct {
 	config                config.Config
 	keys                  KeyMap
@@ -55,6 +62,7 @@ type Model struct {
 	showQuotes            bool
 	quitting              bool
 	commandInput          string
+	search                SearchState
 	labelPrompt           labelPromptState
 	statusMessage         string
 	fatalError            string
@@ -97,6 +105,25 @@ type Model struct {
 	syncContext           context.Context
 	syncCancel            context.CancelFunc
 	syncHadInput          bool
+}
+
+type SearchState struct {
+	Query           string
+	Mode            SearchMode
+	ActiveAccount   string
+	Loading         bool
+	Results         []Message
+	Error           string
+	Submitted       bool
+	PreviousMailbox searchMailboxContext
+}
+
+type searchMailboxContext struct {
+	SelectedLabel         int
+	SelectedMessage       int
+	SelectedThreadMessage int
+	Focus                 Pane
+	ReaderOpen            bool
 }
 
 type Option func(*Model)
@@ -252,6 +279,7 @@ func New(cfg config.Config, opts ...Option) Model {
 		styles:         NewStyles(os.Getenv("NO_COLOR") != ""),
 		mailbox:        fakeMailbox(),
 		mode:           ModeNormal,
+		search:         SearchState{Mode: SearchModeOnline},
 		focus:          PaneList,
 		renderMode:     string(cfg.UI.RenderModeDefault),
 		now:            time.Now,
@@ -525,7 +553,7 @@ func (m Model) View() string {
 		return "G&T\n\nFatal error: " + m.fatalError
 	}
 
-	if m.mode == ModeNormal {
+	if m.mode == ModeNormal || m.mode == ModeSearch {
 		return m.renderMailbox()
 	}
 	if m.mode == ModeCacheDashboard {
@@ -616,6 +644,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case ModeAccountSwitcher:
 		return m.handleAccountSwitcherKey(key)
 	case ModeSearch, ModeCompose, ModeCommand, ModeLabelPrompt:
+		if m.mode == ModeSearch {
+			return m.handleSearchKey(msg)
+		}
 		if m.mode == ModeCommand {
 			return m.handleCommandKey(msg)
 		}
@@ -677,7 +708,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "tab":
 		m.nextPane()
 	case "/":
-		m.mode = ModeSearch
+		m.enterSearchMode()
 	case "c", "f":
 		m.mode = ModeCompose
 	case "e":
@@ -710,6 +741,116 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	return m, nil
+}
+
+func (m *Model) enterSearchMode() {
+	m.mode = ModeSearch
+	searchMode := m.search.Mode
+	if searchMode == "" {
+		searchMode = SearchModeOnline
+	}
+	if m.offline {
+		searchMode = SearchModeOffline
+	}
+	m.search = SearchState{
+		Query:         m.search.Query,
+		Mode:          searchMode,
+		ActiveAccount: m.mailbox.Account,
+		PreviousMailbox: searchMailboxContext{
+			SelectedLabel:         m.selectedLabel,
+			SelectedMessage:       m.selectedMessage,
+			SelectedThreadMessage: m.selectedThreadMessage,
+			Focus:                 m.focus,
+			ReaderOpen:            m.readerOpen,
+		},
+	}
+	m.statusMessage = fmt.Sprintf("search %s", m.search.Mode)
+}
+
+func (m Model) handleSearchKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEsc:
+		m.exitSearchMode("search canceled")
+		return m, nil
+	case tea.KeyEnter:
+		m.submitSearch()
+		return m, nil
+	case tea.KeyBackspace, tea.KeyCtrlH:
+		m.search.Query = trimLastRune(m.search.Query)
+		m.search.Error = ""
+		return m, nil
+	}
+
+	switch msg.String() {
+	case "esc":
+		m.exitSearchMode("search canceled")
+	case "enter":
+		m.submitSearch()
+	case "backspace", "ctrl+h":
+		m.search.Query = trimLastRune(m.search.Query)
+		m.search.Error = ""
+	case "ctrl+/", "ctrl+_", "ctrl+?":
+		m.toggleSearchMode()
+	default:
+		for _, r := range msg.Runes {
+			m.search.Query += string(r)
+			m.search.Error = ""
+		}
+	}
+	return m, nil
+}
+
+func (m *Model) submitSearch() {
+	m.search.Query = strings.TrimSpace(m.search.Query)
+	m.search.ActiveAccount = m.mailbox.Account
+	m.search.Submitted = true
+	m.search.Loading = false
+	m.search.Error = ""
+	if m.search.Query == "" {
+		m.search.Error = "enter a search query"
+		m.statusMessage = m.search.Error
+		return
+	}
+	m.selectedMessage = 0
+	m.selectedThreadMessage = 0
+	m.readerOpen = false
+	m.focus = PaneList
+	m.statusMessage = fmt.Sprintf("search submitted: %s [%s]", m.search.Query, m.search.Mode)
+}
+
+func (m *Model) toggleSearchMode() {
+	if m.search.Mode == SearchModeOffline {
+		m.search.Mode = SearchModeOnline
+	} else {
+		m.search.Mode = SearchModeOffline
+	}
+	m.search.Error = ""
+	if strings.TrimSpace(m.search.Query) != "" {
+		m.submitSearch()
+		return
+	}
+	m.statusMessage = fmt.Sprintf("search %s", m.search.Mode)
+}
+
+func (m *Model) exitSearchMode(status string) {
+	ctx := m.search.PreviousMailbox
+	m.mode = ModeNormal
+	m.selectedLabel = clamp(ctx.SelectedLabel, 0, len(m.mailbox.Labels)-1)
+	m.selectedMessage = clamp(ctx.SelectedMessage, 0, len(m.mailbox.Messages)-1)
+	m.selectedThreadMessage = ctx.SelectedThreadMessage
+	m.focus = ctx.Focus
+	m.readerOpen = ctx.ReaderOpen
+	m.search.Loading = false
+	m.search.Error = ""
+	m.statusMessage = status
+}
+
+func trimLastRune(value string) string {
+	if value == "" {
+		return ""
+	}
+	runes := []rune(value)
+	return string(runes[:len(runes)-1])
 }
 
 func (m Model) handleCommandKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
