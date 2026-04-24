@@ -4,7 +4,10 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"net/mail"
 	"os"
+	"strings"
+	"time"
 
 	"github.com/bkarlovitz/gandt/internal/auth"
 	"github.com/bkarlovitz/gandt/internal/cache"
@@ -144,7 +147,12 @@ func loadInitialMailbox(paths config.Paths) (ui.Mailbox, bool) {
 	if err != nil {
 		return ui.AuthFailureMailbox(err.Error()), true
 	}
-	return ui.RealAccountMailbox(account.Email, uiLabels(cache.NewSyncPolicyRepository(db), account.ID, labels)), true
+	labelsForUI := uiLabels(cache.NewSyncPolicyRepository(db), account.ID, labels)
+	messagesByLabel, err := uiMessagesByLabel(ctx, cache.NewMessageRepository(db), account.ID, labels)
+	if err != nil {
+		return ui.AuthFailureMailbox(err.Error()), true
+	}
+	return ui.RealAccountMailbox(account.Email, labelsForUI, messagesByLabel), true
 }
 
 func uiLabels(policies cache.SyncPolicyRepository, accountID string, labels []cache.Label) []ui.Label {
@@ -155,6 +163,7 @@ func uiLabels(policies cache.SyncPolicyRepository, accountID string, labels []ca
 			depth = policy.Depth
 		}
 		out = append(out, ui.Label{
+			ID:         label.ID,
 			Name:       label.Name,
 			Unread:     label.Unread,
 			System:     label.Type == "system",
@@ -162,4 +171,63 @@ func uiLabels(policies cache.SyncPolicyRepository, accountID string, labels []ca
 		})
 	}
 	return out
+}
+
+func uiMessagesByLabel(ctx context.Context, messages cache.MessageRepository, accountID string, labels []cache.Label) (map[string][]ui.Message, error) {
+	out := map[string][]ui.Message{}
+	for _, label := range labels {
+		summaries, err := messages.ListSummariesByLabel(ctx, accountID, label.ID, 5000)
+		if err != nil {
+			return nil, err
+		}
+		for _, summary := range summaries {
+			out[label.ID] = append(out[label.ID], uiMessage(summary))
+		}
+	}
+	return out, nil
+}
+
+func uiMessage(summary cache.MessageSummary) ui.Message {
+	cacheState := "metadata"
+	if summary.BodyCached {
+		cacheState = "cached"
+	}
+	from, address := displaySender(summary.FromAddr)
+	return ui.Message{
+		ID:              summary.ID,
+		ThreadID:        summary.ThreadID,
+		From:            from,
+		Address:         address,
+		Subject:         summary.Subject,
+		Date:            displayDate(summary.InternalDate, summary.Date),
+		Snippet:         summary.Snippet,
+		Unread:          summary.Unread,
+		ThreadCount:     summary.ThreadCount,
+		CacheState:      cacheState,
+		AttachmentCount: summary.AttachmentCount,
+	}
+}
+
+func displaySender(value string) (string, string) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "(unknown)", ""
+	}
+	address, err := mail.ParseAddress(value)
+	if err != nil {
+		return value, value
+	}
+	if strings.TrimSpace(address.Name) != "" {
+		return address.Name, address.Address
+	}
+	return address.Address, address.Address
+}
+
+func displayDate(values ...*time.Time) string {
+	for _, value := range values {
+		if value != nil && !value.IsZero() {
+			return value.Local().Format("Jan 02")
+		}
+	}
+	return ""
 }

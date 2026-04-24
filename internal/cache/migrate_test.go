@@ -165,6 +165,7 @@ func expectedIndexes() []string {
 		"idx_labels_type",
 		"idx_threads_date",
 		"idx_messages_thread",
+		"idx_messages_thread_date",
 		"idx_messages_date",
 		"idx_messages_cached",
 		"idx_msglabels_label",

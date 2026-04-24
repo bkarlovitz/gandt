@@ -122,6 +122,8 @@ Columns:
 Indexes:
 
 - `idx_messages_thread` on `(account_id, thread_id)`.
+- `idx_messages_thread_date` on `(account_id, thread_id, internal_date DESC,
+  date DESC)`.
 - `idx_messages_date` on `(account_id, internal_date DESC)`.
 - `idx_messages_cached` on `(account_id, cached_at)`.
 

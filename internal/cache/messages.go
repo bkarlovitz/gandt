@@ -52,6 +52,21 @@ type Message struct {
 	CachedAt     *time.Time
 }
 
+type MessageSummary struct {
+	AccountID       string
+	ID              string
+	ThreadID        string
+	FromAddr        string
+	Subject         string
+	Snippet         string
+	Date            *time.Time
+	InternalDate    *time.Time
+	ThreadCount     int
+	Unread          bool
+	AttachmentCount int
+	BodyCached      bool
+}
+
 type MessageLabel struct {
 	AccountID string `db:"account_id"`
 	MessageID string `db:"message_id"`
@@ -249,6 +264,57 @@ ORDER BY internal_date DESC, date DESC, id
 	return mapMessageRows(rows)
 }
 
+func (r MessageRepository) ListSummariesByLabel(ctx context.Context, accountID string, labelID string, limit int) ([]MessageSummary, error) {
+	query := `
+SELECT m.account_id, m.id, m.thread_id, m.from_addr, m.subject, m.snippet, m.date, m.internal_date,
+       (
+         SELECT COUNT(*) FROM messages tm
+         WHERE tm.account_id = m.account_id AND tm.thread_id = m.thread_id
+       ) AS thread_count,
+       EXISTS (
+         SELECT 1 FROM message_labels unread
+         WHERE unread.account_id = m.account_id AND unread.message_id = m.id AND unread.label_id = 'UNREAD'
+       ) AS unread,
+       (
+         SELECT COUNT(*) FROM attachments a
+         WHERE a.account_id = m.account_id AND a.message_id = m.id
+       ) AS attachment_count,
+       CASE WHEN m.body_plain IS NOT NULL OR m.body_html IS NOT NULL OR m.cached_at IS NOT NULL THEN 1 ELSE 0 END AS body_cached
+FROM messages m
+JOIN message_labels ml ON ml.account_id = m.account_id AND ml.message_id = m.id
+WHERE m.account_id = ? AND ml.label_id = ?
+ORDER BY m.internal_date DESC, m.date DESC, m.id DESC
+`
+	args := []any{accountID, labelID}
+	if limit > 0 {
+		queryLimit := limit * 4
+		if queryLimit < limit {
+			queryLimit = limit
+		}
+		query += "LIMIT ?"
+		args = append(args, queryLimit)
+	}
+
+	rows := []messageSummaryRow{}
+	if err := r.db.SelectContext(ctx, &rows, query, args...); err != nil {
+		return nil, fmt.Errorf("list message summaries by label: %w", err)
+	}
+
+	summaries := make([]MessageSummary, 0, len(rows))
+	seenThreads := map[string]bool{}
+	for _, row := range rows {
+		if seenThreads[row.ThreadID] {
+			continue
+		}
+		seenThreads[row.ThreadID] = true
+		summaries = append(summaries, row.summary())
+		if limit > 0 && len(summaries) >= limit {
+			break
+		}
+	}
+	return summaries, nil
+}
+
 type MessageLabelRepository struct {
 	db *sqlx.DB
 }
@@ -442,6 +508,38 @@ type messageRow struct {
 	InternalDate sql.NullTime   `db:"internal_date"`
 	FetchedFull  int            `db:"fetched_full"`
 	CachedAt     sql.NullTime   `db:"cached_at"`
+}
+
+type messageSummaryRow struct {
+	AccountID       string         `db:"account_id"`
+	ID              string         `db:"id"`
+	ThreadID        string         `db:"thread_id"`
+	FromAddr        sql.NullString `db:"from_addr"`
+	Subject         sql.NullString `db:"subject"`
+	Snippet         sql.NullString `db:"snippet"`
+	Date            sql.NullTime   `db:"date"`
+	InternalDate    sql.NullTime   `db:"internal_date"`
+	ThreadCount     int            `db:"thread_count"`
+	Unread          int            `db:"unread"`
+	AttachmentCount int            `db:"attachment_count"`
+	BodyCached      int            `db:"body_cached"`
+}
+
+func (row messageSummaryRow) summary() MessageSummary {
+	return MessageSummary{
+		AccountID:       row.AccountID,
+		ID:              row.ID,
+		ThreadID:        row.ThreadID,
+		FromAddr:        row.FromAddr.String,
+		Subject:         row.Subject.String,
+		Snippet:         row.Snippet.String,
+		Date:            nullTimePtr(row.Date),
+		InternalDate:    nullTimePtr(row.InternalDate),
+		ThreadCount:     row.ThreadCount,
+		Unread:          row.Unread == 1,
+		AttachmentCount: row.AttachmentCount,
+		BodyCached:      row.BodyCached == 1,
+	}
 }
 
 func (row messageRow) message() (Message, error) {

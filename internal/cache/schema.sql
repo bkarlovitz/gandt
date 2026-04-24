@@ -150,6 +150,7 @@ CREATE INDEX idx_accounts_email ON accounts(email);
 CREATE INDEX idx_labels_type ON labels(account_id, type);
 CREATE INDEX idx_threads_date ON threads(account_id, last_message_date DESC);
 CREATE INDEX idx_messages_thread ON messages(account_id, thread_id);
+CREATE INDEX idx_messages_thread_date ON messages(account_id, thread_id, internal_date DESC, date DESC);
 CREATE INDEX idx_messages_date ON messages(account_id, internal_date DESC);
 CREATE INDEX idx_messages_cached ON messages(account_id, cached_at);
 CREATE INDEX idx_msglabels_label ON message_labels(account_id, label_id);

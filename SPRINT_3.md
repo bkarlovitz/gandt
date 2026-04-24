@@ -49,7 +49,7 @@ Grounded in `prd.md` sections 7, 9, 10, 12, 13.2, 13.3, 14, 17, 18, 20, and mile
   - Dim or collapse quoted sections over the configured threshold.
   - Validation: `go test ./internal/render/...` uses golden files for plaintext, HTML newsletters, links, images, tables, and quoted replies.
 
-- [ ] **Task 3.8**: Wire mailbox view to cached data
+- [x] **Task 3.8**: Wire mailbox view to cached data
   - Replace dummy message rows with cached thread/message summaries for the active label.
   - Keep 5,000-message cached list rendering under the PRD target by loading view models efficiently.
   - Show unread, selected row, thread count, cache-state badge, and attachment indicator.

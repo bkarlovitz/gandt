@@ -6,16 +6,18 @@ import (
 )
 
 type Mailbox struct {
-	Account       string
-	Labels        []Label
-	Messages      []Message
-	Real          bool
-	NoAccounts    bool
-	Bootstrapping bool
-	AuthError     string
+	Account         string
+	Labels          []Label
+	Messages        []Message
+	MessagesByLabel map[string][]Message
+	Real            bool
+	NoAccounts      bool
+	Bootstrapping   bool
+	AuthError       string
 }
 
 type Label struct {
+	ID         string
 	Name       string
 	Unread     int
 	System     bool
@@ -23,15 +25,19 @@ type Label struct {
 }
 
 type Message struct {
-	From        string
-	Address     string
-	Subject     string
-	Date        string
-	Snippet     string
-	Body        []string
-	Unread      bool
-	ThreadCount int
-	Attachments []Attachment
+	ID              string
+	ThreadID        string
+	From            string
+	Address         string
+	Subject         string
+	Date            string
+	Snippet         string
+	Body            []string
+	Unread          bool
+	ThreadCount     int
+	CacheState      string
+	AttachmentCount int
+	Attachments     []Attachment
 }
 
 type Attachment struct {
@@ -133,13 +139,20 @@ func AuthFailureMailbox(message string) Mailbox {
 	return mailbox
 }
 
-func RealAccountMailbox(account string, labels []Label) Mailbox {
-	return Mailbox{
+func RealAccountMailbox(account string, labels []Label, messagesByLabel ...map[string][]Message) Mailbox {
+	mailbox := Mailbox{
 		Account:  account,
 		Labels:   labels,
 		Messages: nil,
 		Real:     true,
 	}
+	if len(messagesByLabel) > 0 {
+		mailbox.MessagesByLabel = messagesByLabel[0]
+		if len(labels) > 0 {
+			mailbox.Messages = mailbox.MessagesByLabel[labelKey(labels[0])]
+		}
+	}
+	return mailbox
 }
 
 func (m Model) renderMailbox() string {
@@ -264,21 +277,49 @@ func (m Model) renderMessageList(width, maxRows int) []string {
 		if message.ThreadCount > 1 {
 			thread = fmt.Sprintf(" [%d]", message.ThreadCount)
 		}
+		attachment := ""
+		if message.AttachmentCount > 0 {
+			attachment = " A"
+		}
 		unread := " "
 		if message.Unread {
 			unread = "*"
 		}
 		lines = append(lines,
 			m.renderSelectableLine(
-				fmt.Sprintf("%s%-12s %5s %s%s %s", prefix, message.From, message.Date, message.Subject, thread, unread),
+				fmt.Sprintf("%s%-12s %5s %s%s %s%s", prefix, message.From, message.Date, message.Subject, thread, unread, attachment),
 				width,
 				i == m.selectedMessage,
 			),
-			fit("  "+message.Snippet, width),
+			fit("  "+messageListDetail(message), width),
 		)
 	}
 
 	return limitLines(lines, maxRows, width)
+}
+
+func messageListDetail(message Message) string {
+	if message.CacheState == "" {
+		return message.Snippet
+	}
+	return message.CacheState + " | " + message.Snippet
+}
+
+func readerDate(value string) string {
+	if strings.Contains(value, " ") {
+		return value
+	}
+	if value == "" {
+		return ""
+	}
+	return "Thu Apr 23 " + value
+}
+
+func labelKey(label Label) string {
+	if label.ID != "" {
+		return label.ID
+	}
+	return label.Name
 }
 
 func (m Model) renderReader(width, maxRows int) []string {
@@ -295,7 +336,7 @@ func (m Model) renderReader(width, maxRows int) []string {
 		"Reader",
 		"From: " + message.From + " <" + message.Address + ">",
 		"Subject: " + message.Subject,
-		"Date: Thu Apr 23 " + message.Date,
+		"Date: " + readerDate(message.Date),
 		"",
 	}
 	lines = append(lines, message.Body...)

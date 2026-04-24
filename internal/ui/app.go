@@ -299,6 +299,7 @@ func (m *Model) moveSelection(delta int) {
 	switch m.focus {
 	case PaneLabels:
 		m.selectedLabel = clamp(m.selectedLabel+delta, 0, len(m.mailbox.Labels)-1)
+		m.updateSelectedLabelMessages()
 	default:
 		m.selectedMessage = clamp(m.selectedMessage+delta, 0, len(m.mailbox.Messages)-1)
 	}
@@ -318,9 +319,19 @@ func (m *Model) jumpSelection(bottom bool) {
 	switch m.focus {
 	case PaneLabels:
 		m.selectedLabel = clamp(target, 0, len(m.mailbox.Labels)-1)
+		m.updateSelectedLabelMessages()
 	default:
 		m.selectedMessage = clamp(target, 0, len(m.mailbox.Messages)-1)
 	}
+}
+
+func (m *Model) updateSelectedLabelMessages() {
+	if len(m.mailbox.MessagesByLabel) == 0 || len(m.mailbox.Labels) == 0 {
+		return
+	}
+	key := labelKey(m.mailbox.Labels[m.selectedLabel])
+	m.mailbox.Messages = m.mailbox.MessagesByLabel[key]
+	m.selectedMessage = clamp(m.selectedMessage, 0, len(m.mailbox.Messages)-1)
 }
 
 func (m *Model) nextPane() {

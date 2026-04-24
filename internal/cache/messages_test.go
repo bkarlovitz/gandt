@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -233,6 +234,130 @@ func TestMessageRepositoryCascadesAndFTSTriggers(t *testing.T) {
 	assertFTSMatchCount(t, db, "release", 0)
 	assertRowCount(t, db, "message_labels", accountID, 0)
 	assertRowCount(t, db, "attachments", accountID, 0)
+}
+
+func TestMessageRepositoryListSummariesByLabel(t *testing.T) {
+	ctx := context.Background()
+	db := migratedTestDB(t)
+	accountID := seedMessageRepoAccount(t, db)
+	labels := NewLabelRepository(db)
+	if err := labels.Upsert(ctx, Label{AccountID: accountID, ID: "UNREAD", Name: "Unread", Type: "system"}); err != nil {
+		t.Fatalf("upsert unread label: %v", err)
+	}
+
+	threads := NewThreadRepository(db)
+	messages := NewMessageRepository(db)
+	messageLabels := NewMessageLabelRepository(db)
+	attachments := NewAttachmentRepository(db)
+
+	firstDate := time.Date(2026, 4, 24, 10, 0, 0, 0, time.UTC)
+	secondDate := time.Date(2026, 4, 24, 11, 0, 0, 0, time.UTC)
+	if err := threads.Upsert(ctx, Thread{AccountID: accountID, ID: "thread-1", LastMessageDate: &secondDate}); err != nil {
+		t.Fatalf("upsert thread: %v", err)
+	}
+	body := "cached body"
+	for _, message := range []Message{
+		{AccountID: accountID, ID: "message-1", ThreadID: "thread-1", FromAddr: "older@example.com", Subject: "Older", Snippet: "old", InternalDate: &firstDate},
+		{AccountID: accountID, ID: "message-2", ThreadID: "thread-1", FromAddr: "newer@example.com", Subject: "Newer", Snippet: "new", InternalDate: &secondDate, BodyPlain: &body},
+	} {
+		if err := messages.Upsert(ctx, message); err != nil {
+			t.Fatalf("upsert message %s: %v", message.ID, err)
+		}
+		if err := messageLabels.Upsert(ctx, MessageLabel{AccountID: accountID, MessageID: message.ID, LabelID: "INBOX"}); err != nil {
+			t.Fatalf("upsert inbox mapping %s: %v", message.ID, err)
+		}
+	}
+	if err := messageLabels.Upsert(ctx, MessageLabel{AccountID: accountID, MessageID: "message-2", LabelID: "UNREAD"}); err != nil {
+		t.Fatalf("upsert unread mapping: %v", err)
+	}
+	if err := attachments.Upsert(ctx, Attachment{AccountID: accountID, MessageID: "message-2", PartID: "1", Filename: "plan.pdf"}); err != nil {
+		t.Fatalf("upsert attachment: %v", err)
+	}
+
+	summaries, err := messages.ListSummariesByLabel(ctx, accountID, "INBOX", 5000)
+	if err != nil {
+		t.Fatalf("list summaries: %v", err)
+	}
+	if len(summaries) != 1 {
+		t.Fatalf("summaries = %#v, want one thread summary", summaries)
+	}
+	summary := summaries[0]
+	if summary.ID != "message-2" || summary.ThreadID != "thread-1" || summary.ThreadCount != 2 {
+		t.Fatalf("summary = %#v, want latest message with thread count", summary)
+	}
+	if !summary.Unread || summary.AttachmentCount != 1 || !summary.BodyCached {
+		t.Fatalf("summary flags = %#v, want unread attachment cached", summary)
+	}
+}
+
+func BenchmarkMessageRepositoryListSummariesByLabel5000(b *testing.B) {
+	ctx := context.Background()
+	db, err := OpenPath(ctx, b.TempDir()+"/cache.db")
+	if err != nil {
+		b.Fatalf("open cache: %v", err)
+	}
+	defer db.Close()
+	if err := Migrate(ctx, db); err != nil {
+		b.Fatalf("migrate cache: %v", err)
+	}
+	accountID := seedSummaryBenchmarkAccount(b, db)
+	if err := seedSummaryBenchmarkRows(ctx, db, accountID, 5000); err != nil {
+		b.Fatalf("seed benchmark rows: %v", err)
+	}
+
+	repo := NewMessageRepository(db)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if _, err := repo.ListSummariesByLabel(ctx, accountID, "INBOX", 5000); err != nil {
+			b.Fatalf("list summaries: %v", err)
+		}
+	}
+}
+
+func seedSummaryBenchmarkAccount(b *testing.B, db *sqlx.DB) string {
+	b.Helper()
+
+	account, err := NewAccountRepository(db).Create(context.Background(), CreateAccountParams{Email: "bench@example.com"})
+	if err != nil {
+		b.Fatalf("create account: %v", err)
+	}
+	labels := NewLabelRepository(db)
+	for _, label := range []Label{
+		{AccountID: account.ID, ID: "INBOX", Name: "Inbox", Type: "system"},
+		{AccountID: account.ID, ID: "UNREAD", Name: "Unread", Type: "system"},
+	} {
+		if err := labels.Upsert(context.Background(), label); err != nil {
+			b.Fatalf("upsert label %s: %v", label.ID, err)
+		}
+	}
+	return account.ID
+}
+
+func seedSummaryBenchmarkRows(ctx context.Context, db *sqlx.DB, accountID string, count int) error {
+	tx, err := db.BeginTxx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	for i := 0; i < count; i++ {
+		threadID := fmt.Sprintf("thread-%04d", i)
+		messageID := fmt.Sprintf("message-%04d", i)
+		when := time.Date(2026, 4, 24, 12, 0, 0, 0, time.UTC).Add(-time.Duration(i) * time.Minute)
+		if _, err := tx.ExecContext(ctx, "INSERT INTO threads (account_id, id, last_message_date) VALUES (?, ?, ?)", accountID, threadID, when); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `
+INSERT INTO messages (account_id, id, thread_id, from_addr, to_addrs, cc_addrs, bcc_addrs, subject, snippet, raw_headers, internal_date)
+VALUES (?, ?, ?, ?, '[]', '[]', '[]', ?, ?, '[]', ?)
+`, accountID, messageID, threadID, "sender@example.com", "Subject", "Snippet", when); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, "INSERT INTO message_labels (account_id, message_id, label_id) VALUES (?, ?, 'INBOX')", accountID, messageID); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 func seedMessageRepoAccount(t *testing.T, db *sqlx.DB) string {
