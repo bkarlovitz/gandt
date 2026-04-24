@@ -3,6 +3,7 @@ package sync
 import (
 	"context"
 	"errors"
+	"strconv"
 	"time"
 
 	"github.com/bkarlovitz/gandt/internal/cache"
@@ -30,6 +31,14 @@ type DeltaSyncResult struct {
 	BodyFetches     int
 }
 
+type AccountSyncResult struct {
+	Delta    DeltaSyncResult
+	Backfill BackfillResult
+	Bodies   BodyFetchResult
+	Fallback bool
+	Status   string
+}
+
 func NewDeltaSynchronizer(db *sqlx.DB, cfg config.Config, client gmail.MessageReader) DeltaSynchronizer {
 	return DeltaSynchronizer{
 		accounts:  cache.NewAccountRepository(db),
@@ -38,6 +47,41 @@ func NewDeltaSynchronizer(db *sqlx.DB, cfg config.Config, client gmail.MessageRe
 		backfill:  NewBackfiller(db, cfg, client),
 		gmail:     client,
 	}
+}
+
+func (s DeltaSynchronizer) Sync(ctx context.Context, account cache.Account) (AccountSyncResult, error) {
+	delta, err := s.DeltaSync(ctx, account)
+	if err == nil {
+		return AccountSyncResult{Delta: delta, Status: "sync complete"}, nil
+	}
+	if !isExpiredHistoryError(err) {
+		return AccountSyncResult{}, err
+	}
+
+	backfill, err := s.backfill.Backfill(ctx, account)
+	if err != nil {
+		return AccountSyncResult{}, err
+	}
+	bodyQueue, err := s.missingBodyQueue(ctx, account.ID, backfill.BodyQueue)
+	if err != nil {
+		return AccountSyncResult{}, err
+	}
+	bodies, err := s.backfill.FetchBodies(ctx, account, bodyQueue)
+	if err != nil {
+		return AccountSyncResult{}, err
+	}
+	if historyID := latestHistoryID(backfill.Messages); historyID != "" {
+		if err := s.accounts.UpdateSyncMetadata(ctx, account.ID, historyID, time.Now().UTC()); err != nil {
+			return AccountSyncResult{}, err
+		}
+	}
+
+	return AccountSyncResult{
+		Backfill: backfill,
+		Bodies:   bodies,
+		Fallback: true,
+		Status:   "Gmail history expired; refreshing mailbox",
+	}, nil
 }
 
 func (s DeltaSynchronizer) DeltaSync(ctx context.Context, account cache.Account) (DeltaSyncResult, error) {
@@ -120,6 +164,48 @@ func (s DeltaSynchronizer) applyHistoryRecord(ctx context.Context, account cache
 		}
 	}
 	return nil
+}
+
+func (s DeltaSynchronizer) missingBodyQueue(ctx context.Context, accountID string, queue []BodyFetchRequest) ([]BodyFetchRequest, error) {
+	out := make([]BodyFetchRequest, 0, len(queue))
+	for _, request := range queue {
+		message, err := s.messages.Get(ctx, accountID, request.MessageID)
+		if errors.Is(err, cache.ErrMessageNotFound) {
+			out = append(out, request)
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		if message.BodyPlain == nil && message.BodyHTML == nil && message.CachedAt == nil {
+			out = append(out, request)
+		}
+	}
+	return out, nil
+}
+
+func isExpiredHistoryError(err error) bool {
+	return errors.Is(err, gmail.ErrHistoryGone) || errors.Is(err, gmail.ErrNotFound)
+}
+
+func latestHistoryID(messages []gmail.Message) string {
+	var latest uint64
+	out := ""
+	for _, message := range messages {
+		if message.HistoryID == "" {
+			continue
+		}
+		parsed, err := strconv.ParseUint(message.HistoryID, 10, 64)
+		if err != nil {
+			out = message.HistoryID
+			continue
+		}
+		if parsed >= latest {
+			latest = parsed
+			out = message.HistoryID
+		}
+	}
+	return out
 }
 
 func (s DeltaSynchronizer) ensureChangedMessageCached(ctx context.Context, account cache.Account, ref gmail.MessageRef) error {

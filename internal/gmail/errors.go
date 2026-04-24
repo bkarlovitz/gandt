@@ -12,6 +12,7 @@ var (
 	ErrUnauthorized = errors.New("gmail unauthorized")
 	ErrForbidden    = errors.New("gmail forbidden")
 	ErrNotFound     = errors.New("gmail not found")
+	ErrHistoryGone  = errors.New("gmail history not found")
 	ErrRateLimited  = errors.New("gmail rate limited")
 	ErrUnavailable  = errors.New("gmail unavailable")
 )
@@ -47,6 +48,11 @@ func classifyGoogleError(err *googleapi.Error) error {
 		}
 		return ErrForbidden
 	case 404:
+		for _, item := range err.Errors {
+			if item.Reason == "historyNotFound" {
+				return errors.Join(ErrHistoryGone, ErrNotFound)
+			}
+		}
 		return ErrNotFound
 	case 429:
 		return ErrRateLimited

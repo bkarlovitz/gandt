@@ -13,7 +13,7 @@ Grounded in `prd.md` sections 9, 10, 13.6, 17, 18, 20, and milestone M2.
   - Update account history ID only after successfully applying the batch.
   - Validation: `go test ./internal/sync/...` covers fixture histories and verifies final database state.
 
-- [ ] **Task 4.2**: Handle expired Gmail history windows
+- [x] **Task 4.2**: Handle expired Gmail history windows
   - Detect `historyNotFound` or equivalent 404 behavior.
   - Fall back to policy-aware relist/backfill without refetching cached bodies that are still valid.
   - Surface a status message so the user knows a larger refresh is running.

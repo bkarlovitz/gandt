@@ -26,7 +26,7 @@ func TestDeltaSyncAppliesHistoryRecordsAndAdvancesHistoryAfterSuccess(t *testing
 	seedCachedMessage(t, db, account.ID, cache.Message{ID: "delete-1", ThreadID: "thread-delete", Subject: "Delete", InternalDate: &now}, []string{"INBOX"})
 
 	client := newFakeHistoryReader()
-	client.pages = []gmail.HistoryPage{{
+	client.historyPages = []gmail.HistoryPage{{
 		HistoryID: "200",
 		Records: []gmail.HistoryRecord{{
 			ID:              "101",
@@ -95,7 +95,7 @@ func TestDeltaSyncDoesNotAdvanceHistoryWhenApplyFails(t *testing.T) {
 	seedMetadataPolicy(t, db, account.ID, "INBOX")
 
 	client := newFakeHistoryReader()
-	client.pages = []gmail.HistoryPage{{
+	client.historyPages = []gmail.HistoryPage{{
 		HistoryID: "200",
 		Records: []gmail.HistoryRecord{{
 			MessagesAdded: []gmail.HistoryMessageChange{{Message: gmail.MessageRef{ID: "missing", ThreadID: "thread-missing"}}},
@@ -111,6 +111,100 @@ func TestDeltaSyncDoesNotAdvanceHistoryWhenApplyFails(t *testing.T) {
 	}
 	if updatedAccount.HistoryID != "100" || updatedAccount.LastSyncAt == nil || !updatedAccount.LastSyncAt.Equal(originalLastSync) {
 		t.Fatalf("account sync metadata = %#v, want unchanged history", updatedAccount)
+	}
+}
+
+func TestSyncFallsBackOnExpiredHistoryAndPreservesCachedBodies(t *testing.T) {
+	ctx := context.Background()
+	db := migratedSyncTestDB(t)
+	account := seedSyncAccountWithHistory(t, db, "100")
+	seedSyncLabels(t, db, account.ID, "INBOX")
+	cachedBody := "cached body"
+	now := time.Date(2026, 4, 24, 12, 0, 0, 0, time.UTC)
+	seedCachedMessage(t, db, account.ID, cache.Message{
+		ID:           "cached-1",
+		ThreadID:     "thread-cached",
+		Subject:      "Cached",
+		BodyPlain:    &cachedBody,
+		InternalDate: &now,
+	}, []string{"INBOX"})
+
+	client := newFakeHistoryReader()
+	client.historyErr = fmt.Errorf("history gone: %w", gmail.ErrHistoryGone)
+	client.listPages["INBOX"] = []gmail.ListMessagesPage{{
+		Messages: []gmail.MessageRef{
+			{ID: "cached-1", ThreadID: "thread-cached"},
+			{ID: "new-1", ThreadID: "thread-new"},
+		},
+	}}
+	client.metadata["cached-1"] = gmail.Message{
+		ID:           "cached-1",
+		ThreadID:     "thread-cached",
+		HistoryID:    "300",
+		LabelIDs:     []string{"INBOX"},
+		InternalDate: now,
+		Headers: []gmail.MessageHeader{
+			{Name: "From", Value: "cached@example.com"},
+			{Name: "Subject", Value: "Cached"},
+		},
+	}
+	client.metadata["new-1"] = gmail.Message{
+		ID:           "new-1",
+		ThreadID:     "thread-new",
+		HistoryID:    "301",
+		LabelIDs:     []string{"INBOX"},
+		InternalDate: now.Add(time.Minute),
+		Headers: []gmail.MessageHeader{
+			{Name: "From", Value: "new@example.com"},
+			{Name: "Subject", Value: "New"},
+		},
+	}
+	client.full["new-1"] = gmail.Message{
+		ID:           "new-1",
+		ThreadID:     "thread-new",
+		HistoryID:    "301",
+		LabelIDs:     []string{"INBOX"},
+		InternalDate: now.Add(time.Minute),
+		Headers: []gmail.MessageHeader{
+			{Name: "From", Value: "new@example.com"},
+			{Name: "Subject", Value: "New"},
+		},
+		Payload: &gmail.MessagePart{
+			MimeType: "text/plain",
+			Body:     gmail.MessagePartBody{Data: "bmV3IGJvZHk", Size: 8},
+		},
+	}
+
+	result, err := NewDeltaSynchronizer(db, config.Default(), client).Sync(ctx, account)
+	if err != nil {
+		t.Fatalf("sync fallback: %v", err)
+	}
+	if !result.Fallback || result.Status != "Gmail history expired; refreshing mailbox" {
+		t.Fatalf("result = %#v, want expired-history fallback status", result)
+	}
+	if result.Bodies.Requested != 1 || result.Bodies.Fetched != 1 || len(client.fullCalls) != 1 || client.fullCalls[0] != "new-1" {
+		t.Fatalf("body fetches = %#v full calls=%#v, want only new body fetched", result.Bodies, client.fullCalls)
+	}
+	cached, err := cache.NewMessageRepository(db).Get(ctx, account.ID, "cached-1")
+	if err != nil {
+		t.Fatalf("get cached message: %v", err)
+	}
+	if cached.BodyPlain == nil || *cached.BodyPlain != "cached body" {
+		t.Fatalf("cached body = %#v, want preserved body", cached.BodyPlain)
+	}
+	added, err := cache.NewMessageRepository(db).Get(ctx, account.ID, "new-1")
+	if err != nil {
+		t.Fatalf("get new message: %v", err)
+	}
+	if added.BodyPlain == nil || *added.BodyPlain != "new body" {
+		t.Fatalf("new body = %#v, want fetched body", added.BodyPlain)
+	}
+	updatedAccount, err := cache.NewAccountRepository(db).Get(ctx, account.ID)
+	if err != nil {
+		t.Fatalf("get account: %v", err)
+	}
+	if updatedAccount.HistoryID != "301" {
+		t.Fatalf("account history = %q, want latest backfill message history", updatedAccount.HistoryID)
 	}
 }
 
@@ -165,27 +259,50 @@ func seedCachedMessage(t *testing.T, db *sqlx.DB, accountID string, message cach
 }
 
 type fakeHistoryReader struct {
-	pages        []gmail.HistoryPage
-	pageIndex    int
-	metadata     map[string]gmail.Message
-	historyCalls []gmail.ListHistoryOptions
+	historyPages      []gmail.HistoryPage
+	historyPageIndex  int
+	historyErr        error
+	listPages         map[string][]gmail.ListMessagesPage
+	listPageIndex     map[string]int
+	metadata          map[string]gmail.Message
+	full              map[string]gmail.Message
+	historyCalls      []gmail.ListHistoryOptions
+	fullCalls         []string
+	batchMetadataSize []int
 }
 
 func newFakeHistoryReader() *fakeHistoryReader {
-	return &fakeHistoryReader{metadata: map[string]gmail.Message{}}
+	return &fakeHistoryReader{
+		listPages:     map[string][]gmail.ListMessagesPage{},
+		listPageIndex: map[string]int{},
+		metadata:      map[string]gmail.Message{},
+		full:          map[string]gmail.Message{},
+	}
 }
 
 func (f *fakeHistoryReader) ListMessages(ctx context.Context, opts gmail.ListMessagesOptions) (gmail.ListMessagesPage, error) {
-	return gmail.ListMessagesPage{}, fmt.Errorf("unexpected message list")
+	labelID := ""
+	if len(opts.LabelIDs) > 0 {
+		labelID = opts.LabelIDs[0]
+	}
+	index := f.listPageIndex[labelID]
+	f.listPageIndex[labelID]++
+	if index >= len(f.listPages[labelID]) {
+		return gmail.ListMessagesPage{}, nil
+	}
+	return f.listPages[labelID][index], nil
 }
 
 func (f *fakeHistoryReader) ListHistory(ctx context.Context, opts gmail.ListHistoryOptions) (gmail.HistoryPage, error) {
 	f.historyCalls = append(f.historyCalls, opts)
-	if f.pageIndex >= len(f.pages) {
+	if f.historyErr != nil {
+		return gmail.HistoryPage{}, f.historyErr
+	}
+	if f.historyPageIndex >= len(f.historyPages) {
 		return gmail.HistoryPage{}, nil
 	}
-	page := f.pages[f.pageIndex]
-	f.pageIndex++
+	page := f.historyPages[f.historyPageIndex]
+	f.historyPageIndex++
 	return page, nil
 }
 
@@ -198,11 +315,24 @@ func (f *fakeHistoryReader) GetMessageMetadata(ctx context.Context, id string, h
 }
 
 func (f *fakeHistoryReader) GetMessageFull(ctx context.Context, id string) (gmail.Message, error) {
+	f.fullCalls = append(f.fullCalls, id)
+	if message, ok := f.full[id]; ok {
+		return message, nil
+	}
 	return f.GetMessageMetadata(ctx, id)
 }
 
 func (f *fakeHistoryReader) BatchGetMessageMetadata(ctx context.Context, ids []string, headers ...string) ([]gmail.Message, error) {
-	return nil, fmt.Errorf("unexpected batch metadata")
+	f.batchMetadataSize = append(f.batchMetadataSize, len(ids))
+	messages := make([]gmail.Message, 0, len(ids))
+	for _, id := range ids {
+		message, err := f.GetMessageMetadata(ctx, id, headers...)
+		if err != nil {
+			return nil, err
+		}
+		messages = append(messages, message)
+	}
+	return messages, nil
 }
 
 func (f *fakeHistoryReader) GetThread(ctx context.Context, id string, format gmail.MessageFormat, headers ...string) (gmail.Thread, error) {
