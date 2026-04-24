@@ -43,7 +43,7 @@ Grounded in `prd.md` sections 8, 9, 13.3, 13.5, 13.7, 13.8, 14, 15, 17, 19, 20, 
   - Reply-all includes original To and Cc minus the user's own address.
   - Validation: `go test ./internal/compose/...` includes golden tests for reply, reply-all, forward, and self-address removal.
 
-- [ ] **Task 8.7**: Implement MIME assembly
+- [x] **Task 8.7**: Implement MIME assembly
   - Assemble RFC 822 messages for plain text bodies, HTML fallback where needed, and attachments.
   - Encode headers, recipients, body, and attachment parts correctly.
   - Keep raw message generation deterministic for tests.

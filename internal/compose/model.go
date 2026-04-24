@@ -145,6 +145,7 @@ type Attachment struct {
 	Filename     string
 	MimeType     string
 	SizeBytes    int64
+	Data         []byte
 	AttachmentID string
 	Inline       bool
 	ContentID    string
