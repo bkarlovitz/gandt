@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"os"
 	"strings"
 
 	"github.com/bkarlovitz/gandt/internal/config"
@@ -18,21 +19,26 @@ const (
 )
 
 type Model struct {
-	config   config.Config
-	keys     KeyMap
-	styles   Styles
-	mode     Mode
-	width    int
-	height   int
-	quitting bool
+	config          config.Config
+	keys            KeyMap
+	styles          Styles
+	mailbox         Mailbox
+	mode            Mode
+	width           int
+	height          int
+	selectedLabel   int
+	selectedMessage int
+	readerOpen      bool
+	quitting        bool
 }
 
 func New(cfg config.Config) Model {
 	return Model{
-		config: cfg,
-		keys:   DefaultKeyMap(),
-		styles: NewStyles(),
-		mode:   ModeNormal,
+		config:  cfg,
+		keys:    DefaultKeyMap(),
+		styles:  NewStyles(os.Getenv("NO_COLOR") != ""),
+		mailbox: fakeMailbox(),
+		mode:    ModeNormal,
 	}
 }
 
@@ -57,6 +63,10 @@ func (m Model) View() string {
 		return ""
 	}
 
+	if m.mode == ModeNormal {
+		return m.renderMailbox()
+	}
+
 	var b strings.Builder
 	b.WriteString(m.styles.Header.Render("G&T"))
 	b.WriteString("\n\n")
@@ -71,9 +81,6 @@ func (m Model) View() string {
 		b.WriteString("Compose mode\n\nPress Esc to return.")
 	case ModeCommand:
 		b.WriteString("Command mode\n\nPress Esc to return.")
-	default:
-		b.WriteString("Fake mailbox coming in Sprint 1.\n\n")
-		b.WriteString(m.keys.Footer())
 	}
 
 	return b.String()

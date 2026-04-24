@@ -55,7 +55,7 @@ Grounded in `prd.md` sections 5, 6, 12, 15, 16, 20, and milestone M0.
   - Handle terminal resize and clean quit via `q`, `Esc`, and `Ctrl+C` where appropriate.
   - Validation: `go test ./internal/ui/...` covers Init, Update quit behavior, and resize handling.
 
-- [ ] **Task 1.9**: Build the fake three-pane mailbox view
+- [x] **Task 1.9**: Build the fake three-pane mailbox view
   - Add label, message list, and reader panes with dummy account, labels, messages, attachments, and status bar text.
   - Preserve the responsive behavior from the PRD: three panes at wide widths, collapsed labels below 120 columns, list-or-reader below 80 columns.
   - Respect `NO_COLOR` by disabling color styles.

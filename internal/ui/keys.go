@@ -41,11 +41,11 @@ func DefaultKeyMap() KeyMap {
 
 func (k KeyMap) Footer() string {
 	return strings.Join([]string{
-		k.Help.Help().Key + ": " + k.Help.Help().Desc,
-		k.Search.Help().Key + ": " + k.Search.Help().Desc,
-		k.Compose.Help().Key + ": " + k.Compose.Help().Desc,
-		k.Command.Help().Key + ": " + k.Command.Help().Desc,
-		k.Quit.Help().Key + ": " + k.Quit.Help().Desc,
+		helpText(k.Help),
+		helpText(k.Search),
+		helpText(k.Compose),
+		helpText(k.Command),
+		helpText(k.Quit),
 	}, "   ")
 }
 
@@ -57,4 +57,13 @@ func (k KeyMap) HelpText() string {
 		k.Quit.Help().Key + "  " + k.Quit.Help().Desc,
 		"Esc  close help",
 	}, "\n")
+}
+
+func helpText(binding key.Binding) string {
+	help := binding.Help()
+	separator := ": "
+	if strings.HasSuffix(help.Key, ":") {
+		separator = " "
+	}
+	return help.Key + separator + help.Desc
 }
