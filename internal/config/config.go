@@ -50,6 +50,7 @@ type UIConfig struct {
 	ComposeEditor      ComposeEditor `toml:"compose_editor"`
 	RenderModeDefault  RenderMode    `toml:"render_mode_default"`
 	RenderURLFootnotes bool          `toml:"render_url_footnotes"`
+	RecentSearchLimit  int           `toml:"recent_search_limit"`
 }
 
 type SyncConfig struct {
@@ -105,6 +106,7 @@ func Default() Config {
 			ComposeEditor:      ComposeEditorExternal,
 			RenderModeDefault:  RenderModePlaintext,
 			RenderURLFootnotes: true,
+			RecentSearchLimit:  20,
 		},
 		Sync: SyncConfig{
 			PollActiveSeconds:     60,
@@ -159,6 +161,9 @@ func (cfg Config) Validate() error {
 	}
 	if !validRenderMode(cfg.UI.RenderModeDefault) {
 		return fmt.Errorf("invalid ui.render_mode_default %q", cfg.UI.RenderModeDefault)
+	}
+	if cfg.UI.RecentSearchLimit < 0 {
+		return fmt.Errorf("invalid ui.recent_search_limit %d", cfg.UI.RecentSearchLimit)
 	}
 	if !validCacheDepth(cfg.Cache.Defaults.Depth) {
 		return fmt.Errorf("invalid cache.defaults.depth %q", cfg.Cache.Defaults.Depth)

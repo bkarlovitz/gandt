@@ -136,6 +136,7 @@ func expectedTables() []string {
 		"sync_policies",
 		"cache_exclusions",
 		"message_annotations",
+		"recent_searches",
 		"messages_fts",
 	}
 }
@@ -174,5 +175,6 @@ func expectedIndexes() []string {
 		"idx_sync_policies_label",
 		"idx_exclusions_match",
 		"idx_annot_namespace",
+		"idx_recent_searches_used",
 	}
 }

@@ -73,6 +73,7 @@ theme = "dark"
 compose_editor = "external"
 render_mode_default = "plaintext"
 render_url_footnotes = true
+recent_search_limit = 20
 
 [sync]
 poll_active_seconds = 60

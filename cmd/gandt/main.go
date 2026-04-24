@@ -63,7 +63,7 @@ func main() {
 		ui.WithCredentialReplacer(buildCredentialReplacer()),
 		ui.WithThreadLoader(buildThreadLoader(paths, cfg)),
 		ui.WithManualRefresher(buildManualRefresher(paths, cfg)),
-		ui.WithSearchRunner(buildSearchRunner(paths)),
+		ui.WithSearchRunner(buildSearchRunner(paths, cfg)),
 		ui.WithTriageActor(buildTriageActor(paths)),
 		ui.WithCacheDashboardLoader(buildCacheDashboardLoader(paths, cfg)),
 		ui.WithCachePolicyStore(buildCachePolicyStore(paths, cfg)),
@@ -235,7 +235,7 @@ func buildManualRefresher(paths config.Paths, cfg config.Config) ui.ManualRefres
 	})
 }
 
-func buildSearchRunner(paths config.Paths) ui.SearchRunner {
+func buildSearchRunner(paths config.Paths, cfg config.Config) ui.SearchRunner {
 	return ui.SearchRunnerFunc(func(ctx context.Context, request ui.SearchRequest) (ui.SearchResult, error) {
 		db, err := cache.Open(ctx, paths)
 		if err != nil {
@@ -249,9 +249,20 @@ func buildSearchRunner(paths config.Paths) ui.SearchRunner {
 		if err != nil {
 			return ui.SearchResult{}, err
 		}
+		recordRecent := func() error {
+			return cache.NewRecentSearchRepository(db).Record(ctx, cache.RecentSearch{
+				AccountID: account.ID,
+				Query:     request.Query,
+				Mode:      string(request.Mode),
+				LastUsed:  time.Now().UTC(),
+			}, cfg.UI.RecentSearchLimit)
+		}
 		if request.Mode == ui.SearchModeOffline {
 			summaries, err := cache.NewMessageRepository(db).SearchSummaries(ctx, account.ID, request.Query, request.Limit)
 			if err != nil {
+				return ui.SearchResult{}, err
+			}
+			if err := recordRecent(); err != nil {
 				return ui.SearchResult{}, err
 			}
 			messages := make([]ui.Message, 0, len(summaries))
@@ -278,6 +289,9 @@ func buildSearchRunner(paths config.Paths) ui.SearchRunner {
 		})
 		if err != nil {
 			return ui.SearchResult{}, offlineIfUnavailable(err)
+		}
+		if err := recordRecent(); err != nil {
+			return ui.SearchResult{}, err
 		}
 		messages := make([]ui.Message, 0, len(online.Messages))
 		for _, message := range online.Messages {

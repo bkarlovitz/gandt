@@ -120,6 +120,14 @@ CREATE TABLE message_annotations (
   FOREIGN KEY (account_id, message_id) REFERENCES messages(account_id, id) ON DELETE CASCADE
 );
 
+CREATE TABLE recent_searches (
+  account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+  query      TEXT NOT NULL,
+  mode       TEXT NOT NULL,
+  last_used  DATETIME NOT NULL,
+  PRIMARY KEY (account_id, query, mode)
+);
+
 CREATE VIRTUAL TABLE messages_fts USING fts5(
   account_id UNINDEXED,
   message_id UNINDEXED,
@@ -159,3 +167,4 @@ CREATE INDEX idx_outbox_account ON outbox(account_id, status);
 CREATE INDEX idx_sync_policies_label ON sync_policies(account_id, label_id);
 CREATE INDEX idx_exclusions_match ON cache_exclusions(account_id, match_type, match_value);
 CREATE INDEX idx_annot_namespace ON message_annotations(namespace);
+CREATE INDEX idx_recent_searches_used ON recent_searches(account_id, last_used DESC);

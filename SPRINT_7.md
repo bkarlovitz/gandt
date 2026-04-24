@@ -43,7 +43,7 @@ Grounded in `prd.md` sections 7, 9, 13.4, 15, 18, 20, and milestone M4.
   - Default to offline mode automatically when the active account is offline and show that mode clearly.
   - Validation: `go test ./internal/ui/...` covers toggle behavior, rerun behavior, and offline default.
 
-- [ ] **Task 7.7**: Persist recent searches
+- [x] **Task 7.7**: Persist recent searches
   - Add a small `recent_searches` schema migration or include it in schema v1 before release, with matching documentation updates.
   - Store recent searches locally per account with query text, mode, and last-used timestamp.
   - Limit stored recents to a small configurable count.

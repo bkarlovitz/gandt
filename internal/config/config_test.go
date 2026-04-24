@@ -16,6 +16,7 @@ func TestLoadMissingConfigReturnsDefaults(t *testing.T) {
 	assertEqual(t, string(cfg.UI.Theme), "dark")
 	assertEqual(t, string(cfg.UI.ComposeEditor), "external")
 	assertEqual(t, string(cfg.UI.RenderModeDefault), "plaintext")
+	assertEqual(t, cfg.UI.RecentSearchLimit, 20)
 	assertEqual(t, cfg.Sync.PollActiveSeconds, 60)
 	assertEqual(t, string(cfg.Cache.Defaults.Depth), "full")
 	assertEqual(t, string(cfg.Cache.Defaults.AttachmentRule), "under_size")
@@ -29,6 +30,7 @@ theme = "light"
 compose_editor = "inline"
 render_mode_default = "glamour"
 render_url_footnotes = false
+recent_search_limit = 12
 
 [sync]
 poll_active_seconds = 30
@@ -76,6 +78,7 @@ downloads = "~/mail-downloads"
 	assertEqual(t, string(cfg.UI.ComposeEditor), "inline")
 	assertEqual(t, string(cfg.UI.RenderModeDefault), "glamour")
 	assertEqual(t, cfg.UI.RenderURLFootnotes, false)
+	assertEqual(t, cfg.UI.RecentSearchLimit, 12)
 	assertEqual(t, cfg.Sync.PollActiveSeconds, 30)
 	assertEqual(t, string(cfg.Cache.Defaults.Depth), "body")
 	assertEqual(t, len(cfg.Cache.Policies), 1)
@@ -100,6 +103,10 @@ render_mode_default = "rich"
 		"cache depth": `
 [cache.defaults]
 depth = "everything"
+`,
+		"recent search limit": `
+[ui]
+recent_search_limit = -1
 `,
 		"attachment rule": `
 [cache.defaults]

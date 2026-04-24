@@ -289,6 +289,27 @@ Indexes:
 
 - `idx_annot_namespace` on `namespace`.
 
+### `recent_searches`
+
+Small account-scoped history of user-entered search queries. Rows store only the
+query text, mode, and last-used timestamp; they do not store message bodies or
+result snapshots.
+
+Keys:
+
+- Primary key: `(account_id, query, mode)`.
+- `account_id` references `accounts(id)` with cascade delete.
+
+Columns:
+
+- `query`: user-entered search text.
+- `mode`: search mode, currently `online` or `offline`.
+- `last_used`: timestamp used for recency ordering and limit trimming.
+
+Indexes:
+
+- `idx_recent_searches_used` on `(account_id, last_used DESC)`.
+
 ## Full-Text Search
 
 `messages_fts` is an FTS5 virtual table populated by triggers on `messages`.
