@@ -2,6 +2,7 @@ package sync
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -142,6 +143,88 @@ func TestBackfillerQueuesBodiesByPolicyDepthAndExclusion(t *testing.T) {
 	if !equalStringSlices(gotQueue, wantQueue) {
 		t.Fatalf("body queue = %#v, want %#v", gotQueue, wantQueue)
 	}
+	if _, err := cache.NewMessageRepository(db).Get(ctx, account.ID, "Label_Secret-msg"); err == nil {
+		t.Fatalf("excluded message was persisted")
+	} else if !errors.Is(err, cache.ErrMessageNotFound) {
+		t.Fatalf("excluded message lookup error = %v, want ErrMessageNotFound", err)
+	}
+}
+
+func TestBackfillerPersistsParsedGmailMetadata(t *testing.T) {
+	ctx := context.Background()
+	db := migratedSyncTestDB(t)
+	account := seedSyncAccount(t, db)
+	seedSyncLabels(t, db, account.ID, "INBOX", "Label_1")
+
+	client := newFakeMessageReader()
+	client.pages["INBOX"] = []gmail.ListMessagesPage{{Messages: []gmail.MessageRef{{ID: "message-1", ThreadID: "thread-1"}}}}
+	client.pages["Label_1"] = []gmail.ListMessagesPage{{Messages: []gmail.MessageRef{{ID: "message-1", ThreadID: "thread-1"}}}}
+	internalDate := time.Date(2026, 4, 24, 15, 4, 5, 0, time.UTC)
+	client.metadata["message-1"] = gmail.Message{
+		ID:           "message-1",
+		ThreadID:     "thread-1",
+		HistoryID:    "88",
+		LabelIDs:     []string{"INBOX", "Label_1"},
+		Snippet:      "cached snippet",
+		SizeEstimate: 2048,
+		InternalDate: internalDate,
+		Headers: []gmail.MessageHeader{
+			{Name: "From", Value: "Ada Lovelace <ada@example.com>"},
+			{Name: "To", Value: "me@example.com, team@example.com"},
+			{Name: "Cc", Value: "ops@example.com"},
+			{Name: "Bcc", Value: "audit@example.com"},
+			{Name: "Subject", Value: "Metadata sync"},
+			{Name: "Date", Value: "Fri, 24 Apr 2026 11:04:05 -0400"},
+		},
+	}
+
+	result, err := NewBackfiller(db, config.Default(), client).Backfill(ctx, account)
+	if err != nil {
+		t.Fatalf("backfill: %v", err)
+	}
+	if len(result.Messages) != 1 {
+		t.Fatalf("messages = %#v, want one persisted metadata message", result.Messages)
+	}
+
+	thread, err := cache.NewThreadRepository(db).Get(ctx, account.ID, "thread-1")
+	if err != nil {
+		t.Fatalf("get thread: %v", err)
+	}
+	if thread.Snippet != "cached snippet" || thread.HistoryID != "88" || thread.LastMessageDate == nil || !thread.LastMessageDate.Equal(internalDate) {
+		t.Fatalf("thread = %#v, want Gmail thread metadata", thread)
+	}
+
+	message, err := cache.NewMessageRepository(db).Get(ctx, account.ID, "message-1")
+	if err != nil {
+		t.Fatalf("get message: %v", err)
+	}
+	if message.FromAddr != "Ada Lovelace <ada@example.com>" || message.Subject != "Metadata sync" || message.SizeBytes != 2048 {
+		t.Fatalf("message = %#v, want parsed Gmail metadata", message)
+	}
+	if !equalStringSlices(message.ToAddrs, []string{"me@example.com", "team@example.com"}) {
+		t.Fatalf("to addrs = %#v, want parsed address list", message.ToAddrs)
+	}
+	if message.Date == nil || !message.Date.Equal(internalDate) {
+		t.Fatalf("date = %v, want parsed RFC822 date", message.Date)
+	}
+	if message.InternalDate == nil || !message.InternalDate.Equal(internalDate) {
+		t.Fatalf("internal date = %v, want Gmail internal date", message.InternalDate)
+	}
+	if message.CachedAt != nil {
+		t.Fatalf("cached_at = %v, want nil until body is persisted", message.CachedAt)
+	}
+	if len(message.RawHeaders) != 6 {
+		t.Fatalf("raw headers = %#v, want all Gmail headers", message.RawHeaders)
+	}
+
+	labels, err := cache.NewMessageLabelRepository(db).ListForMessage(ctx, account.ID, "message-1")
+	if err != nil {
+		t.Fatalf("list labels: %v", err)
+	}
+	if len(labels) != 2 || labels[0].LabelID != "INBOX" || labels[1].LabelID != "Label_1" {
+		t.Fatalf("labels = %#v, want INBOX and Label_1 mappings", labels)
+	}
+	assertSyncFTSMatchCount(t, db, "metadata", 1)
 }
 
 func seedSyncLabels(t *testing.T, db *sqlx.DB, accountID string, labelIDs ...string) {
@@ -255,4 +338,16 @@ func equalStringSlices(a, b []string) bool {
 		}
 	}
 	return true
+}
+
+func assertSyncFTSMatchCount(t *testing.T, db *sqlx.DB, term string, want int) {
+	t.Helper()
+
+	var count int
+	if err := db.GetContext(context.Background(), &count, "SELECT COUNT(*) FROM messages_fts WHERE messages_fts MATCH ?", term); err != nil {
+		t.Fatalf("count fts matches for %q: %v", term, err)
+	}
+	if count != want {
+		t.Fatalf("fts matches for %q = %d, want %d", term, count, want)
+	}
 }

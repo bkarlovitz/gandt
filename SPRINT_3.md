@@ -31,7 +31,7 @@ Grounded in `prd.md` sections 7, 9, 10, 12, 13.2, 13.3, 14, 17, 18, 20, and mile
   - Enqueue body fetches for policies with `body` or `full` depth.
   - Validation: `go test ./internal/sync/...` runs fixture backfills for included, excluded, metadata-only, body, and full policies.
 
-- [ ] **Task 3.5**: Persist parsed Gmail metadata
+- [x] **Task 3.5**: Persist parsed Gmail metadata
   - Map Gmail headers into from, to, cc, bcc, subject, date, snippet, size, internal date, labels, and thread rows.
   - Avoid writing excluded messages to the persistent message tables.
   - Record `cached_at` only when a body is persisted.

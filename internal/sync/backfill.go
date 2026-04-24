@@ -22,6 +22,9 @@ type Backfiller struct {
 	config    config.Config
 	gmail     gmail.MessageReader
 	labels    cache.LabelRepository
+	threads   cache.ThreadRepository
+	messages  cache.MessageRepository
+	msgLabels cache.MessageLabelRepository
 	evaluator PolicyEvaluator
 }
 
@@ -50,6 +53,9 @@ func NewBackfiller(db *sqlx.DB, cfg config.Config, client gmail.MessageReader) B
 		config:    cfg,
 		gmail:     client,
 		labels:    cache.NewLabelRepository(db),
+		threads:   cache.NewThreadRepository(db),
+		messages:  cache.NewMessageRepository(db),
+		msgLabels: cache.NewMessageLabelRepository(db),
 		evaluator: NewPolicyEvaluator(db, cfg),
 	}
 }
@@ -111,11 +117,13 @@ func (b Backfiller) Backfill(ctx context.Context, account cache.Account) (Backfi
 				continue
 			}
 			ref := refsByID[message.ID]
+			message.ThreadID = firstNonEmpty(message.ThreadID, ref.ThreadID)
+			labelIDs := mergeLabels(labelsByMessage[message.ID], message.LabelIDs)
 			decision, err := b.evaluator.Evaluate(ctx, MessageContext{
 				AccountID:    account.ID,
 				AccountEmail: account.Email,
 				From:         headerValue(message.Headers, "From"),
-				LabelIDs:     mergeLabels(labelsByMessage[message.ID], message.LabelIDs),
+				LabelIDs:     labelIDs,
 			})
 			if err != nil {
 				return BackfillResult{}, err
@@ -123,6 +131,9 @@ func (b Backfiller) Backfill(ctx context.Context, account cache.Account) (Backfi
 			if decision.Excluded {
 				result.ExcludedCount++
 				continue
+			}
+			if err := b.persistMetadata(ctx, account.ID, message, labelIDs); err != nil {
+				return BackfillResult{}, err
 			}
 			result.Messages = append(result.Messages, message)
 			if decision.Depth == config.CacheDepthBody || decision.Depth == config.CacheDepthFull {
