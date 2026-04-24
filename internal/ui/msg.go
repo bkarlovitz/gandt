@@ -32,3 +32,10 @@ type refreshDoneMsg struct {
 	Result  RefreshResult
 	Err     error
 }
+
+type triageDoneMsg struct {
+	ID      int
+	Request TriageActionRequest
+	Result  TriageActionResult
+	Err     error
+}

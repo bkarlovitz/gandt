@@ -37,7 +37,7 @@ Grounded in `prd.md` sections 9, 10, 13.6, 17, 18, 20, and milestone M2.
   - Keep request construction testable without live Gmail.
   - Validation: `go test ./internal/gmail/...` covers action request bodies and error mapping with fixture HTTP responses.
 
-- [ ] **Task 4.6**: Implement optimistic action state
+- [x] **Task 4.6**: Implement optimistic action state
   - Apply archive, trash, spam, star, unread, label add/remove, and mute changes immediately in the UI and cache.
   - Dispatch the Gmail API action asynchronously.
   - Revert local state and notify the user if the API call fails.

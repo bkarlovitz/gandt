@@ -36,6 +36,9 @@ type Message struct {
 	Snippet         string
 	Body            []string
 	Unread          bool
+	Starred         bool
+	Muted           bool
+	LabelIDs        []string
 	ThreadCount     int
 	CacheState      string
 	AttachmentCount int

@@ -81,6 +81,43 @@ func (fn ManualRefresherFunc) Refresh(request RefreshRequest) (RefreshResult, er
 	return fn(request)
 }
 
+type TriageActionKind string
+
+const (
+	TriageArchive     TriageActionKind = "archive"
+	TriageTrash       TriageActionKind = "trash"
+	TriageSpam        TriageActionKind = "spam"
+	TriageStar        TriageActionKind = "star"
+	TriageUnread      TriageActionKind = "unread"
+	TriageLabelAdd    TriageActionKind = "label-add"
+	TriageLabelRemove TriageActionKind = "label-remove"
+	TriageMute        TriageActionKind = "mute"
+)
+
+type TriageActionRequest struct {
+	Kind      TriageActionKind
+	Account   string
+	MessageID string
+	ThreadID  string
+	LabelID   string
+	LabelName string
+	Add       bool
+}
+
+type TriageActionResult struct {
+	Summary string
+}
+
+type TriageActor interface {
+	ApplyAction(TriageActionRequest) (TriageActionResult, error)
+}
+
+type TriageActorFunc func(TriageActionRequest) (TriageActionResult, error)
+
+func (fn TriageActorFunc) ApplyAction(request TriageActionRequest) (TriageActionResult, error) {
+	return fn(request)
+}
+
 type OfflineError struct {
 	Err error
 }

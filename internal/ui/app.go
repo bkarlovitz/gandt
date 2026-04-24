@@ -57,6 +57,9 @@ type Model struct {
 	manualRefresher       ManualRefresher
 	refreshingAccount     string
 	toastMessage          string
+	triageActor           TriageActor
+	nextActionID          int
+	pendingActions        map[int]triageSnapshot
 	syncCoordinator       SyncCoordinator
 	syncContext           context.Context
 	syncCancel            context.CancelFunc
@@ -64,6 +67,12 @@ type Model struct {
 }
 
 type Option func(*Model)
+
+type triageSnapshot struct {
+	Mailbox               Mailbox
+	SelectedMessage       int
+	SelectedThreadMessage int
+}
 
 func WithAccountAdder(adder AccountAdder) Option {
 	return func(m *Model) {
@@ -103,6 +112,14 @@ func WithManualRefresher(refresher ManualRefresher) Option {
 	}
 }
 
+func WithTriageActor(actor TriageActor) Option {
+	return func(m *Model) {
+		if actor != nil {
+			m.triageActor = actor
+		}
+	}
+}
+
 type SyncCoordinator interface {
 	Next(context.Context, bool) gandtsync.CoordinatorUpdate
 }
@@ -117,13 +134,14 @@ func WithSyncCoordinator(coordinator SyncCoordinator) Option {
 
 func New(cfg config.Config, opts ...Option) Model {
 	model := Model{
-		config:     cfg,
-		keys:       DefaultKeyMap(),
-		styles:     NewStyles(os.Getenv("NO_COLOR") != ""),
-		mailbox:    fakeMailbox(),
-		mode:       ModeNormal,
-		focus:      PaneList,
-		renderMode: string(cfg.UI.RenderModeDefault),
+		config:         cfg,
+		keys:           DefaultKeyMap(),
+		styles:         NewStyles(os.Getenv("NO_COLOR") != ""),
+		mailbox:        fakeMailbox(),
+		mode:           ModeNormal,
+		focus:          PaneList,
+		renderMode:     string(cfg.UI.RenderModeDefault),
+		pendingActions: map[int]triageSnapshot{},
 	}
 	for _, opt := range opts {
 		opt(&model)
@@ -182,6 +200,25 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		summary := msg.Result.Summary
 		if summary == "" {
 			summary = refreshDoneSummary(msg.Request)
+		}
+		m.statusMessage = summary
+		m.toastMessage = summary
+	case triageDoneMsg:
+		snapshot, ok := m.pendingActions[msg.ID]
+		delete(m.pendingActions, msg.ID)
+		if msg.Err != nil {
+			if ok {
+				m.mailbox = snapshot.Mailbox
+				m.selectedMessage = snapshot.SelectedMessage
+				m.selectedThreadMessage = snapshot.SelectedThreadMessage
+			}
+			m.statusMessage = "action failed: " + msg.Err.Error()
+			m.toastMessage = m.statusMessage
+			return m, nil
+		}
+		summary := msg.Result.Summary
+		if summary == "" {
+			summary = triageDoneSummary(msg.Request)
 		}
 		m.statusMessage = summary
 		m.toastMessage = summary
@@ -311,6 +348,18 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.mode = ModeSearch
 	case "c", "f":
 		m.mode = ModeCompose
+	case "e":
+		return m.startSelectedTriageAction(TriageArchive)
+	case "#":
+		return m.startSelectedTriageAction(TriageTrash)
+	case "!":
+		return m.startSelectedTriageAction(TriageSpam)
+	case "s":
+		return m.startSelectedTriageAction(TriageStar)
+	case "u":
+		return m.startSelectedTriageAction(TriageUnread)
+	case "m":
+		return m.startSelectedTriageAction(TriageMute)
 	case "r":
 		return m.startRefresh(RefreshDelta)
 	case "R":
@@ -430,6 +479,13 @@ func (m Model) runRefresh(request RefreshRequest) tea.Cmd {
 	}
 }
 
+func (m Model) runTriageAction(id int, request TriageActionRequest) tea.Cmd {
+	return func() tea.Msg {
+		result, err := m.triageActor.ApplyAction(request)
+		return triageDoneMsg{ID: id, Request: request, Result: result, Err: err}
+	}
+}
+
 func (m Model) runSyncCycle(active bool) tea.Cmd {
 	if m.syncCoordinator == nil {
 		return nil
@@ -473,6 +529,128 @@ func (m Model) startRefresh(kind RefreshKind) (tea.Model, tea.Cmd) {
 	return m, m.runRefresh(request)
 }
 
+func (m Model) startSelectedTriageAction(kind TriageActionKind) (tea.Model, tea.Cmd) {
+	if len(m.mailbox.Messages) == 0 {
+		m.statusMessage = "no message selected"
+		m.toastMessage = m.statusMessage
+		return m, nil
+	}
+	return m.startTriageAction(m.triageRequest(kind, ""))
+}
+
+func (m Model) startTriageAction(request TriageActionRequest) (tea.Model, tea.Cmd) {
+	if m.triageActor == nil {
+		m.statusMessage = "action unavailable"
+		m.toastMessage = m.statusMessage
+		return m, nil
+	}
+	if request.Account == "" {
+		request.Account = m.mailbox.Account
+	}
+	if request.MessageID == "" || request.ThreadID == "" {
+		if len(m.mailbox.Messages) == 0 {
+			m.statusMessage = "no message selected"
+			m.toastMessage = m.statusMessage
+			return m, nil
+		}
+		message := m.mailbox.Messages[clamp(m.selectedMessage, 0, len(m.mailbox.Messages)-1)]
+		if request.MessageID == "" {
+			request.MessageID = message.ID
+		}
+		if request.ThreadID == "" {
+			request.ThreadID = message.ThreadID
+		}
+	}
+	m.nextActionID++
+	actionID := m.nextActionID
+	m.pendingActions[actionID] = triageSnapshot{
+		Mailbox:               cloneMailbox(m.mailbox),
+		SelectedMessage:       m.selectedMessage,
+		SelectedThreadMessage: m.selectedThreadMessage,
+	}
+	m.applyOptimisticAction(request)
+	summary := triageProgressSummary(request)
+	m.statusMessage = summary
+	m.toastMessage = summary
+	return m, m.runTriageAction(actionID, request)
+}
+
+func (m Model) triageRequest(kind TriageActionKind, labelID string) TriageActionRequest {
+	message := m.mailbox.Messages[clamp(m.selectedMessage, 0, len(m.mailbox.Messages)-1)]
+	request := TriageActionRequest{
+		Kind:      kind,
+		Account:   m.mailbox.Account,
+		MessageID: message.ID,
+		ThreadID:  message.ThreadID,
+		LabelID:   labelID,
+	}
+	switch kind {
+	case TriageStar:
+		request.Add = !message.Starred
+	case TriageUnread:
+		request.Add = !message.Unread
+	default:
+		request.Add = true
+	}
+	return request
+}
+
+func (m *Model) applyOptimisticAction(request TriageActionRequest) {
+	switch request.Kind {
+	case TriageArchive, TriageTrash, TriageSpam:
+		m.removeMessageFromCurrentView(request.MessageID)
+	case TriageStar:
+		m.updateMessageCopies(request.MessageID, func(message *Message) {
+			message.Starred = request.Add
+			message.LabelIDs = setLabel(message.LabelIDs, "STARRED", request.Add)
+		})
+	case TriageUnread:
+		m.updateMessageCopies(request.MessageID, func(message *Message) {
+			message.Unread = request.Add
+			message.LabelIDs = setLabel(message.LabelIDs, "UNREAD", request.Add)
+		})
+	case TriageLabelAdd:
+		m.updateMessageCopies(request.MessageID, func(message *Message) {
+			message.LabelIDs = setLabel(message.LabelIDs, request.LabelID, true)
+		})
+	case TriageLabelRemove:
+		m.updateMessageCopies(request.MessageID, func(message *Message) {
+			message.LabelIDs = setLabel(message.LabelIDs, request.LabelID, false)
+		})
+	case TriageMute:
+		m.updateMessageCopies(request.MessageID, func(message *Message) {
+			message.Muted = true
+			message.LabelIDs = setLabel(message.LabelIDs, "MUTED", true)
+		})
+	}
+}
+
+func (m *Model) removeMessageFromCurrentView(messageID string) {
+	m.mailbox.Messages = removeMessageByID(m.mailbox.Messages, messageID)
+	if len(m.mailbox.Labels) > 0 && len(m.mailbox.MessagesByLabel) > 0 {
+		key := labelKey(m.mailbox.Labels[clamp(m.selectedLabel, 0, len(m.mailbox.Labels)-1)])
+		m.mailbox.MessagesByLabel[key] = removeMessageByID(m.mailbox.MessagesByLabel[key], messageID)
+	}
+	m.selectedMessage = clamp(m.selectedMessage, 0, len(m.mailbox.Messages)-1)
+	m.selectedThreadMessage = 0
+}
+
+func (m *Model) updateMessageCopies(messageID string, update func(*Message)) {
+	for i := range m.mailbox.Messages {
+		if m.mailbox.Messages[i].ID == messageID {
+			update(&m.mailbox.Messages[i])
+		}
+	}
+	for labelID, messages := range m.mailbox.MessagesByLabel {
+		for i := range messages {
+			if messages[i].ID == messageID {
+				update(&messages[i])
+			}
+		}
+		m.mailbox.MessagesByLabel[labelID] = messages
+	}
+}
+
 func (m Model) refreshRequest(kind RefreshKind) RefreshRequest {
 	request := RefreshRequest{
 		Kind:    kind,
@@ -485,6 +663,98 @@ func (m Model) refreshRequest(kind RefreshKind) RefreshRequest {
 	request.LabelID = labelKey(label)
 	request.LabelName = label.Name
 	return request
+}
+
+func triageProgressSummary(request TriageActionRequest) string {
+	return triageDoneSummary(request)
+}
+
+func triageDoneSummary(request TriageActionRequest) string {
+	switch request.Kind {
+	case TriageArchive:
+		return "archived"
+	case TriageTrash:
+		return "trashed"
+	case TriageSpam:
+		return "marked spam"
+	case TriageStar:
+		if request.Add {
+			return "starred"
+		}
+		return "unstarred"
+	case TriageUnread:
+		if request.Add {
+			return "marked unread"
+		}
+		return "marked read"
+	case TriageLabelAdd:
+		return "label added"
+	case TriageLabelRemove:
+		return "label removed"
+	case TriageMute:
+		return "muted"
+	default:
+		return "action complete"
+	}
+}
+
+func removeMessageByID(messages []Message, messageID string) []Message {
+	out := make([]Message, 0, len(messages))
+	for _, message := range messages {
+		if message.ID != messageID {
+			out = append(out, message)
+		}
+	}
+	return out
+}
+
+func setLabel(labels []string, labelID string, present bool) []string {
+	if labelID == "" {
+		return labels
+	}
+	index := -1
+	for i, existing := range labels {
+		if existing == labelID {
+			index = i
+			break
+		}
+	}
+	if present {
+		if index >= 0 {
+			return labels
+		}
+		return append(append([]string{}, labels...), labelID)
+	}
+	if index < 0 {
+		return labels
+	}
+	out := append([]string{}, labels[:index]...)
+	return append(out, labels[index+1:]...)
+}
+
+func cloneMailbox(mailbox Mailbox) Mailbox {
+	clone := mailbox
+	clone.Labels = append([]Label{}, mailbox.Labels...)
+	clone.Messages = cloneMessages(mailbox.Messages)
+	if mailbox.MessagesByLabel != nil {
+		clone.MessagesByLabel = make(map[string][]Message, len(mailbox.MessagesByLabel))
+		for labelID, messages := range mailbox.MessagesByLabel {
+			clone.MessagesByLabel[labelID] = cloneMessages(messages)
+		}
+	}
+	return clone
+}
+
+func cloneMessages(messages []Message) []Message {
+	out := make([]Message, len(messages))
+	for i, message := range messages {
+		out[i] = message
+		out[i].Body = append([]string{}, message.Body...)
+		out[i].LabelIDs = append([]string{}, message.LabelIDs...)
+		out[i].Attachments = append([]Attachment{}, message.Attachments...)
+		out[i].ThreadMessages = append([]ThreadMessage{}, message.ThreadMessages...)
+	}
+	return out
 }
 
 func refreshProgressSummary(request RefreshRequest) string {

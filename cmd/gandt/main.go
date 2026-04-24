@@ -61,6 +61,7 @@ func main() {
 		ui.WithCredentialReplacer(buildCredentialReplacer()),
 		ui.WithThreadLoader(buildThreadLoader(paths, cfg)),
 		ui.WithManualRefresher(buildManualRefresher(paths, cfg)),
+		ui.WithTriageActor(buildTriageActor(paths)),
 		ui.WithSyncCoordinator(buildSyncCoordinator(paths, cfg)),
 	}
 	if mailbox, ok := loadInitialMailbox(paths); ok {
@@ -233,6 +234,141 @@ func runOneAccountRefresh(ctx context.Context, paths config.Paths, cfg config.Co
 		}, nil
 	}
 	return gandtsync.NewDeltaSynchronizer(db, cfg, gmailClient).Sync(ctx, account)
+}
+
+func buildTriageActor(paths config.Paths) ui.TriageActor {
+	return ui.TriageActorFunc(func(request ui.TriageActionRequest) (ui.TriageActionResult, error) {
+		ctx := context.Background()
+		db, err := cache.Open(ctx, paths)
+		if err != nil {
+			return ui.TriageActionResult{}, err
+		}
+		defer db.Close()
+		if err := cache.Migrate(ctx, db); err != nil {
+			return ui.TriageActionResult{}, err
+		}
+
+		accounts, err := cache.NewAccountRepository(db).List(ctx)
+		if err != nil {
+			return ui.TriageActionResult{}, err
+		}
+		if len(accounts) == 0 {
+			return ui.TriageActionResult{}, fmt.Errorf("no accounts configured")
+		}
+		account := accounts[0]
+		for _, candidate := range accounts {
+			if candidate.Email == request.Account {
+				account = candidate
+				break
+			}
+		}
+
+		repo := cache.NewOptimisticActionRepository(db)
+		snapshot, err := repo.Apply(ctx, cacheActionForRequest(account.ID, request))
+		if err != nil {
+			return ui.TriageActionResult{}, err
+		}
+		gmailClient, err := gmailClientForAccount(ctx, account.ID)
+		if err != nil {
+			_ = repo.Revert(ctx, snapshot)
+			return ui.TriageActionResult{}, err
+		}
+		if err := dispatchGmailAction(ctx, gmailClient, request); err != nil {
+			_ = repo.Revert(ctx, snapshot)
+			return ui.TriageActionResult{}, err
+		}
+		return ui.TriageActionResult{Summary: triageActionSummary(request)}, nil
+	})
+}
+
+func cacheActionForRequest(accountID string, request ui.TriageActionRequest) cache.OptimisticAction {
+	action := cache.OptimisticAction{
+		AccountID: accountID,
+		MessageID: request.MessageID,
+		LabelID:   request.LabelID,
+		Add:       request.Add,
+	}
+	switch request.Kind {
+	case ui.TriageArchive:
+		action.Kind = cache.OptimisticArchive
+	case ui.TriageTrash:
+		action.Kind = cache.OptimisticTrash
+	case ui.TriageSpam:
+		action.Kind = cache.OptimisticSpam
+	case ui.TriageStar:
+		action.Kind = cache.OptimisticToggleStar
+	case ui.TriageUnread:
+		action.Kind = cache.OptimisticToggleUnread
+	case ui.TriageLabelAdd:
+		action.Kind = cache.OptimisticLabelAdd
+	case ui.TriageLabelRemove:
+		action.Kind = cache.OptimisticLabelRemove
+	case ui.TriageMute:
+		action.Kind = cache.OptimisticMute
+	}
+	return action
+}
+
+func dispatchGmailAction(ctx context.Context, client *gandtgmail.Client, request ui.TriageActionRequest) error {
+	switch request.Kind {
+	case ui.TriageArchive:
+		return client.BatchModifyMessages(ctx, gandtgmail.MessageModifyRequest{IDs: []string{request.MessageID}, RemoveLabelIDs: []string{"INBOX"}})
+	case ui.TriageTrash:
+		return client.TrashMessage(ctx, request.MessageID)
+	case ui.TriageSpam:
+		return client.BatchModifyMessages(ctx, gandtgmail.MessageModifyRequest{IDs: []string{request.MessageID}, AddLabelIDs: []string{"SPAM"}, RemoveLabelIDs: []string{"INBOX"}})
+	case ui.TriageStar:
+		return client.BatchModifyMessages(ctx, labelToggleRequest(request.MessageID, "STARRED", request.Add))
+	case ui.TriageUnread:
+		return client.BatchModifyMessages(ctx, labelToggleRequest(request.MessageID, "UNREAD", request.Add))
+	case ui.TriageLabelAdd:
+		return client.BatchModifyMessages(ctx, gandtgmail.MessageModifyRequest{IDs: []string{request.MessageID}, AddLabelIDs: []string{request.LabelID}})
+	case ui.TriageLabelRemove:
+		return client.BatchModifyMessages(ctx, gandtgmail.MessageModifyRequest{IDs: []string{request.MessageID}, RemoveLabelIDs: []string{request.LabelID}})
+	case ui.TriageMute:
+		return client.ModifyThread(ctx, gandtgmail.ThreadModifyRequest{ThreadID: request.ThreadID, AddLabelIDs: []string{"MUTED"}})
+	default:
+		return fmt.Errorf("unsupported action %q", request.Kind)
+	}
+}
+
+func labelToggleRequest(messageID string, labelID string, add bool) gandtgmail.MessageModifyRequest {
+	request := gandtgmail.MessageModifyRequest{IDs: []string{messageID}}
+	if add {
+		request.AddLabelIDs = []string{labelID}
+	} else {
+		request.RemoveLabelIDs = []string{labelID}
+	}
+	return request
+}
+
+func triageActionSummary(request ui.TriageActionRequest) string {
+	switch request.Kind {
+	case ui.TriageArchive:
+		return "archived"
+	case ui.TriageTrash:
+		return "trashed"
+	case ui.TriageSpam:
+		return "marked spam"
+	case ui.TriageStar:
+		if request.Add {
+			return "starred"
+		}
+		return "unstarred"
+	case ui.TriageUnread:
+		if request.Add {
+			return "marked unread"
+		}
+		return "marked read"
+	case ui.TriageLabelAdd:
+		return "label added"
+	case ui.TriageLabelRemove:
+		return "label removed"
+	case ui.TriageMute:
+		return "muted"
+	default:
+		return "action complete"
+	}
 }
 
 func loadInitialMailbox(paths config.Paths) (ui.Mailbox, bool) {
