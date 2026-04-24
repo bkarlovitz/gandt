@@ -3,6 +3,8 @@ package ui
 import (
 	"fmt"
 	"strings"
+
+	"github.com/bkarlovitz/gandt/internal/render"
 )
 
 type Mailbox struct {
@@ -38,6 +40,15 @@ type Message struct {
 	CacheState      string
 	AttachmentCount int
 	Attachments     []Attachment
+	ThreadMessages  []ThreadMessage
+}
+
+type ThreadMessage struct {
+	From        string
+	Address     string
+	Date        string
+	Body        []string
+	Attachments []Attachment
 }
 
 type Attachment struct {
@@ -337,26 +348,27 @@ func (m Model) renderReader(width, maxRows int) []string {
 	}
 
 	message := m.mailbox.Messages[m.selectedMessage]
+	readerMessage := m.readerMessage(message)
 	lines := []string{
 		"Reader",
-		"From: " + message.From + " <" + message.Address + ">",
+		"From: " + readerMessage.From + " <" + readerMessage.Address + ">",
 		"Subject: " + message.Subject,
-		"Date: " + readerDate(message.Date),
+		"Date: " + readerDate(readerMessage.Date),
 		"",
 	}
 	switch {
 	case m.loadingThreadID != "" && m.loadingThreadID == message.ThreadID:
 		lines = append(lines, "Loading thread...")
-	case len(message.Body) > 0:
-		lines = append(lines, message.Body...)
+	case len(readerMessage.Body) > 0:
+		lines = append(lines, m.renderBodyLines(readerMessage.Body)...)
 	case message.CacheState == "metadata":
 		lines = append(lines, "[metadata only; body not cached]")
 	default:
 		lines = append(lines, "[no body]")
 	}
-	if len(message.Attachments) > 0 {
-		lines = append(lines, "", fmt.Sprintf("-- %d attachments --", len(message.Attachments)))
-		for _, attachment := range message.Attachments {
+	if len(readerMessage.Attachments) > 0 {
+		lines = append(lines, "", fmt.Sprintf("-- %d attachments --", len(readerMessage.Attachments)))
+		for _, attachment := range readerMessage.Attachments {
 			lines = append(lines, fmt.Sprintf("- %s (%s)", attachment.Name, attachment.Size))
 		}
 	}
@@ -365,6 +377,29 @@ func (m Model) renderReader(width, maxRows int) []string {
 		lines[i] = fit(lines[i], width)
 	}
 	return limitLines(lines, maxRows, width)
+}
+
+func (m Model) readerMessage(message Message) ThreadMessage {
+	if len(message.ThreadMessages) > 0 {
+		index := clamp(m.selectedThreadMessage, 0, len(message.ThreadMessages)-1)
+		return message.ThreadMessages[index]
+	}
+	return ThreadMessage{
+		From:        message.From,
+		Address:     message.Address,
+		Date:        message.Date,
+		Body:        message.Body,
+		Attachments: message.Attachments,
+	}
+}
+
+func (m Model) renderBodyLines(lines []string) []string {
+	body := strings.Join(lines, "\n")
+	if m.showQuotes {
+		return strings.Split(strings.TrimSpace(body), "\n")
+	}
+	formatted := render.FormatQuotes(body, render.QuoteOptions{CollapseThreshold: 4})
+	return strings.Split(formatted, "\n")
 }
 
 func depthIndicator(depth string) string {

@@ -28,27 +28,30 @@ const (
 )
 
 type Model struct {
-	config          config.Config
-	keys            KeyMap
-	styles          Styles
-	mailbox         Mailbox
-	mode            Mode
-	width           int
-	height          int
-	focus           Pane
-	selectedLabel   int
-	selectedMessage int
-	readerOpen      bool
-	quitting        bool
-	commandInput    string
-	statusMessage   string
-	offline         bool
-	addingAccount   bool
-	addAccount      AccountAdder
-	replacingCreds  bool
-	replaceCreds    CredentialReplacer
-	threadLoader    ThreadLoader
-	loadingThreadID string
+	config                config.Config
+	keys                  KeyMap
+	styles                Styles
+	mailbox               Mailbox
+	mode                  Mode
+	width                 int
+	height                int
+	focus                 Pane
+	selectedLabel         int
+	selectedMessage       int
+	selectedThreadMessage int
+	readerOpen            bool
+	renderMode            string
+	showQuotes            bool
+	quitting              bool
+	commandInput          string
+	statusMessage         string
+	offline               bool
+	addingAccount         bool
+	addAccount            AccountAdder
+	replacingCreds        bool
+	replaceCreds          CredentialReplacer
+	threadLoader          ThreadLoader
+	loadingThreadID       string
 }
 
 type Option func(*Model)
@@ -85,12 +88,13 @@ func WithThreadLoader(loader ThreadLoader) Option {
 
 func New(cfg config.Config, opts ...Option) Model {
 	model := Model{
-		config:  cfg,
-		keys:    DefaultKeyMap(),
-		styles:  NewStyles(os.Getenv("NO_COLOR") != ""),
-		mailbox: fakeMailbox(),
-		mode:    ModeNormal,
-		focus:   PaneList,
+		config:     cfg,
+		keys:       DefaultKeyMap(),
+		styles:     NewStyles(os.Getenv("NO_COLOR") != ""),
+		mailbox:    fakeMailbox(),
+		mode:       ModeNormal,
+		focus:      PaneList,
+		renderMode: string(cfg.UI.RenderModeDefault),
 	}
 	for _, opt := range opts {
 		opt(&model)
@@ -219,6 +223,31 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.readerOpen = true
 		m.focus = PaneReader
 		return m, m.loadSelectedThreadIfNeeded()
+	case "J":
+		m.moveThreadMessage(1)
+	case "K":
+		m.moveThreadMessage(-1)
+	case "N":
+		m.moveSelection(1)
+		m.readerOpen = true
+		m.focus = PaneReader
+		return m, m.loadSelectedThreadIfNeeded()
+	case "P":
+		m.moveSelection(-1)
+		m.readerOpen = true
+		m.focus = PaneReader
+		return m, m.loadSelectedThreadIfNeeded()
+	case "V":
+		m.toggleRenderMode()
+	case "B":
+		m.statusMessage = "browser open unavailable in read-only mode"
+	case "z":
+		m.showQuotes = !m.showQuotes
+		if m.showQuotes {
+			m.statusMessage = "quotes shown"
+		} else {
+			m.statusMessage = "quotes collapsed"
+		}
 	case "tab":
 		m.nextPane()
 	case "/":
@@ -381,6 +410,7 @@ func (m *Model) moveSelection(delta int) {
 		m.updateSelectedLabelMessages()
 	default:
 		m.selectedMessage = clamp(m.selectedMessage+delta, 0, len(m.mailbox.Messages)-1)
+		m.selectedThreadMessage = 0
 	}
 }
 
@@ -401,7 +431,32 @@ func (m *Model) jumpSelection(bottom bool) {
 		m.updateSelectedLabelMessages()
 	default:
 		m.selectedMessage = clamp(target, 0, len(m.mailbox.Messages)-1)
+		m.selectedThreadMessage = 0
 	}
+}
+
+func (m *Model) moveThreadMessage(delta int) {
+	if len(m.mailbox.Messages) == 0 {
+		return
+	}
+	message := m.mailbox.Messages[m.selectedMessage]
+	if len(message.ThreadMessages) == 0 {
+		m.statusMessage = "single-message thread"
+		return
+	}
+	m.selectedThreadMessage = clamp(m.selectedThreadMessage+delta, 0, len(message.ThreadMessages)-1)
+}
+
+func (m *Model) toggleRenderMode() {
+	switch m.renderMode {
+	case "plaintext":
+		m.renderMode = "html2text"
+	case "html2text":
+		m.renderMode = "glamour"
+	default:
+		m.renderMode = "plaintext"
+	}
+	m.statusMessage = "render mode: " + m.renderMode
 }
 
 func (m *Model) updateSelectedLabelMessages() {
@@ -411,6 +466,7 @@ func (m *Model) updateSelectedLabelMessages() {
 	key := labelKey(m.mailbox.Labels[m.selectedLabel])
 	m.mailbox.Messages = m.mailbox.MessagesByLabel[key]
 	m.selectedMessage = clamp(m.selectedMessage, 0, len(m.mailbox.Messages)-1)
+	m.selectedThreadMessage = 0
 }
 
 func (m *Model) nextPane() {

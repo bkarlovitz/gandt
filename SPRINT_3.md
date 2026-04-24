@@ -67,7 +67,7 @@ Grounded in `prd.md` sections 7, 9, 10, 12, 13.2, 13.3, 14, 17, 18, 20, and mile
   - Mark streamed-but-not-cached messages clearly when policy depth is metadata.
   - Validation: `go test ./internal/ui ./internal/sync` covers offline messages and manual QA reads a previously cached thread with networking disabled.
 
-- [ ] **Task 3.11**: Implement read-only navigation polish
+- [x] **Task 3.11**: Implement read-only navigation polish
   - Add thread navigation with `J`/`K`, next/previous thread with `N`/`P`, render-mode toggle with `V`, browser open placeholder with `B`, and quote toggle with `z`.
   - Keep unavailable actions disabled or clearly reported until later sprints implement them.
   - Ensure reader/list focus behaves correctly below 80 columns.

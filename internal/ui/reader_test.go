@@ -164,6 +164,98 @@ func TestReaderMarksStreamedButNotCachedBody(t *testing.T) {
 	}
 }
 
+func TestReadOnlyThreadNavigationKeys(t *testing.T) {
+	message := readerMessage("message-1", "thread-1", nil)
+	message.ThreadMessages = []ThreadMessage{
+		{From: "Ada", Address: "ada@example.com", Date: "Apr 24", Body: []string{"first"}},
+		{From: "Bob", Address: "bob@example.com", Date: "Apr 24", Body: []string{"second"}},
+	}
+	model := New(config.Default(), WithMailbox(readerMailboxWithMessages([]Message{message})))
+
+	updated, _ := model.Update(keyMsg("J"))
+	model = updated.(Model)
+	if model.selectedThreadMessage != 1 {
+		t.Fatalf("selected thread message = %d, want 1", model.selectedThreadMessage)
+	}
+	updated, _ = model.Update(keyMsg("K"))
+	model = updated.(Model)
+	if model.selectedThreadMessage != 0 {
+		t.Fatalf("selected thread message = %d, want 0", model.selectedThreadMessage)
+	}
+}
+
+func TestReadOnlyNextPreviousThreadKeys(t *testing.T) {
+	model := New(config.Default(), WithMailbox(readerMailboxWithMessages([]Message{
+		readerMessage("message-1", "thread-1", []string{"first"}),
+		readerMessage("message-2", "thread-2", []string{"second"}),
+	})))
+
+	updated, _ := model.Update(keyMsg("N"))
+	model = updated.(Model)
+	if model.selectedMessage != 1 || model.focus != PaneReader {
+		t.Fatalf("selected=%d focus=%v, want next reader", model.selectedMessage, model.focus)
+	}
+	updated, _ = model.Update(keyMsg("P"))
+	model = updated.(Model)
+	if model.selectedMessage != 0 || model.focus != PaneReader {
+		t.Fatalf("selected=%d focus=%v, want previous reader", model.selectedMessage, model.focus)
+	}
+}
+
+func TestReadOnlyRenderBrowserAndQuoteKeys(t *testing.T) {
+	body := []string{
+		"reply",
+		"> q1",
+		"> q2",
+		"> q3",
+		"> q4",
+		"> q5",
+	}
+	model := New(config.Default(), WithMailbox(readerMailbox(body)))
+	updated, _ := model.Update(tea.WindowSizeMsg{Width: 100, Height: 20})
+	model = updated.(Model)
+
+	if !strings.Contains(model.View(), "[quoted text collapsed; 1 lines hidden]") {
+		t.Fatalf("view did not collapse long quote:\n%s", model.View())
+	}
+	updated, _ = model.Update(keyMsg("z"))
+	model = updated.(Model)
+	if !model.showQuotes || model.statusMessage != "quotes shown" {
+		t.Fatalf("quote state = %v/%q, want shown", model.showQuotes, model.statusMessage)
+	}
+	if !strings.Contains(model.View(), "> q5") {
+		t.Fatalf("view did not show expanded quote:\n%s", model.View())
+	}
+
+	updated, _ = model.Update(keyMsg("V"))
+	model = updated.(Model)
+	if model.renderMode != "html2text" || model.statusMessage != "render mode: html2text" {
+		t.Fatalf("render mode = %q/%q, want html2text", model.renderMode, model.statusMessage)
+	}
+	updated, _ = model.Update(keyMsg("B"))
+	model = updated.(Model)
+	if model.statusMessage != "browser open unavailable in read-only mode" {
+		t.Fatalf("browser status = %q, want unavailable placeholder", model.statusMessage)
+	}
+}
+
+func TestNarrowReaderListFocusToggle(t *testing.T) {
+	model := New(config.Default(), WithMailbox(readerMailbox([]string{"body"})))
+	updated, _ := model.Update(tea.WindowSizeMsg{Width: 72, Height: 12})
+	model = updated.(Model)
+
+	updated, _ = model.Update(keyMsg("tab"))
+	model = updated.(Model)
+	if model.focus != PaneReader || !model.readerOpen {
+		t.Fatalf("focus=%v readerOpen=%v, want reader below 80 cols", model.focus, model.readerOpen)
+	}
+	updated, _ = model.Update(keyMsg("tab"))
+	model = updated.(Model)
+	if model.focus != PaneList || model.readerOpen {
+		t.Fatalf("focus=%v readerOpen=%v, want list below 80 cols", model.focus, model.readerOpen)
+	}
+}
+
 func readerMailbox(body []string) Mailbox {
 	return readerMailboxWithMessages([]Message{readerMessage("message-1", "thread-1", body)})
 }
