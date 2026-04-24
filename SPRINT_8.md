@@ -67,7 +67,7 @@ Grounded in `prd.md` sections 8, 9, 13.3, 13.5, 13.7, 13.8, 14, 15, 17, 19, 20, 
   - Show clear send, autosave, queued, and error states.
   - Validation: `go test ./internal/ui/...` simulates each compose key path and checks resulting state.
 
-- [ ] **Task 8.11**: Implement attachment download
+- [x] **Task 8.11**: Implement attachment download
   - Add wrapper for `users.messages.attachments.get`.
   - Save selected attachment to `$XDG_DOWNLOAD_DIR` or configured downloads path.
   - Cache fetched attachment bytes under `$XDG_DATA_HOME/gandt/attachments/<account_id>/<message_id>/<filename>`.
