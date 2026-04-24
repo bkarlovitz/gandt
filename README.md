@@ -39,6 +39,8 @@ Snapshot release artifacts can be built with:
 goreleaser release --snapshot --clean
 ```
 
+Run `docs/manual-qa.md` before tagging a v1 release candidate.
+
 ## First Run And OAuth
 
 Launch without accounts to inspect the TUI:

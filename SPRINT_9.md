@@ -55,7 +55,7 @@ Grounded in `prd.md` sections 5, 12, 13.10, 14, 15, 16, 17, 18, 19, 20, 21 M6, 2
   - Avoid suggesting unsupported daemon, plugin, telemetry, or non-Gmail workflows.
   - Validation: manual review against `prd.md` sections 19 and 23.
 
-- [ ] **Task 9.9**: Add manual QA checklist
+- [x] **Task 9.9**: Add manual QA checklist
   - Create a release checklist covering account add/remove, multi-account switching, sync, triage, cache controls, search, compose, drafts, attachments, offline behavior, and error recovery.
   - Include macOS and Linux terminal coverage and Windows best-effort smoke checks.
   - Keep real Gmail account steps isolated from automated CI.
