@@ -46,6 +46,8 @@ type Model struct {
 	addAccount      AccountAdder
 	replacingCreds  bool
 	replaceCreds    CredentialReplacer
+	threadLoader    ThreadLoader
+	loadingThreadID string
 }
 
 type Option func(*Model)
@@ -69,6 +71,14 @@ func WithCredentialReplacer(replacer CredentialReplacer) Option {
 func WithMailbox(mailbox Mailbox) Option {
 	return func(m *Model) {
 		m.mailbox = mailbox
+	}
+}
+
+func WithThreadLoader(loader ThreadLoader) Option {
+	return func(m *Model) {
+		if loader != nil {
+			m.threadLoader = loader
+		}
 	}
 }
 
@@ -112,6 +122,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.statusMessage = "replaced OAuth client credentials"
+	case threadLoadDoneMsg:
+		m.loadingThreadID = ""
+		if msg.Err != nil {
+			m.statusMessage = "load thread failed: " + msg.Err.Error()
+			return m, nil
+		}
+		m.applyThreadLoadResult(msg.Result)
+		m.statusMessage = "loaded thread"
 	case tea.KeyMsg:
 		return m.handleKey(msg)
 	}
@@ -194,6 +212,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "enter":
 		m.readerOpen = true
 		m.focus = PaneReader
+		return m, m.loadSelectedThreadIfNeeded()
 	case "tab":
 		m.nextPane()
 	case "/":
@@ -293,6 +312,60 @@ func (m Model) runReplaceCredentials() tea.Cmd {
 	return func() tea.Msg {
 		return replaceCredentialsDoneMsg{Err: m.replaceCreds.ReplaceCredentials()}
 	}
+}
+
+func (m Model) runLoadThread(message Message) tea.Cmd {
+	return func() tea.Msg {
+		result, err := m.threadLoader.LoadThread(ThreadLoadRequest{
+			Account: m.mailbox.Account,
+			Message: message,
+		})
+		return threadLoadDoneMsg{Result: result, Err: err}
+	}
+}
+
+func (m *Model) loadSelectedThreadIfNeeded() tea.Cmd {
+	if m.threadLoader == nil || len(m.mailbox.Messages) == 0 {
+		return nil
+	}
+	message := m.mailbox.Messages[m.selectedMessage]
+	if messageHasReadableBody(message) || message.ThreadID == "" || m.loadingThreadID == message.ThreadID {
+		return nil
+	}
+	m.loadingThreadID = message.ThreadID
+	m.statusMessage = "loading thread..."
+	return m.runLoadThread(message)
+}
+
+func (m *Model) applyThreadLoadResult(result ThreadLoadResult) {
+	update := func(messages []Message) {
+		for i := range messages {
+			if !messageMatchesLoadResult(messages[i], result) {
+				continue
+			}
+			messages[i].Body = append([]string{}, result.Body...)
+			messages[i].Attachments = append([]Attachment{}, result.Attachments...)
+			if result.CacheState != "" {
+				messages[i].CacheState = result.CacheState
+			}
+		}
+	}
+	update(m.mailbox.Messages)
+	for labelID, messages := range m.mailbox.MessagesByLabel {
+		update(messages)
+		m.mailbox.MessagesByLabel[labelID] = messages
+	}
+}
+
+func messageMatchesLoadResult(message Message, result ThreadLoadResult) bool {
+	if result.MessageID != "" && message.ID == result.MessageID {
+		return true
+	}
+	return result.ThreadID != "" && message.ThreadID == result.ThreadID
+}
+
+func messageHasReadableBody(message Message) bool {
+	return len(message.Body) > 0
 }
 
 func (m *Model) moveSelection(delta int) {

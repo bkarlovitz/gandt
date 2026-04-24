@@ -339,7 +339,16 @@ func (m Model) renderReader(width, maxRows int) []string {
 		"Date: " + readerDate(message.Date),
 		"",
 	}
-	lines = append(lines, message.Body...)
+	switch {
+	case m.loadingThreadID != "" && m.loadingThreadID == message.ThreadID:
+		lines = append(lines, "Loading thread...")
+	case len(message.Body) > 0:
+		lines = append(lines, message.Body...)
+	case message.CacheState == "metadata":
+		lines = append(lines, "[metadata only; body not cached]")
+	default:
+		lines = append(lines, "[no body]")
+	}
 	if len(message.Attachments) > 0 {
 		lines = append(lines, "", fmt.Sprintf("-- %d attachments --", len(message.Attachments)))
 		for _, attachment := range message.Attachments {

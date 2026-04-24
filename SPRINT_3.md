@@ -55,7 +55,7 @@ Grounded in `prd.md` sections 7, 9, 10, 12, 13.2, 13.3, 14, 17, 18, 20, and mile
   - Show unread, selected row, thread count, cache-state badge, and attachment indicator.
   - Validation: `go test ./internal/ui/...` covers mailbox snapshots and `go test ./internal/cache/...` benchmarks list query performance.
 
-- [ ] **Task 3.9**: Wire reader view to cached and on-demand data
+- [x] **Task 3.9**: Wire reader view to cached and on-demand data
   - Open selected threads with cached body content when available.
   - On cache miss, fetch the full thread through a `tea.Cmd`; cache it only if policy permits.
   - Render headers, body, quote state, and attachment list.

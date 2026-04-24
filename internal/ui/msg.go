@@ -19,3 +19,8 @@ type addAccountDoneMsg struct {
 type replaceCredentialsDoneMsg struct {
 	Err error
 }
+
+type threadLoadDoneMsg struct {
+	Result ThreadLoadResult
+	Err    error
+}
