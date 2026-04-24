@@ -145,16 +145,14 @@ func TestSyncPolicyRepositoryFallbackAndUpsert(t *testing.T) {
 	}
 
 	retention := 1825
-	attachmentMax := 20
 	custom := SyncPolicy{
-		AccountID:       account.ID,
-		LabelID:         "Label_1",
-		Include:         true,
-		Depth:           "full",
-		RetentionDays:   &retention,
-		AttachmentRule:  "all",
-		AttachmentMaxMB: &attachmentMax,
-		UpdatedAt:       time.Date(2026, 4, 24, 13, 0, 0, 0, time.UTC),
+		AccountID:      account.ID,
+		LabelID:        "Label_1",
+		Include:        true,
+		Depth:          "full",
+		RetentionDays:  &retention,
+		AttachmentRule: "all",
+		UpdatedAt:      time.Date(2026, 4, 24, 13, 0, 0, 0, time.UTC),
 	}
 	if err := policies.Upsert(ctx, custom); err != nil {
 		t.Fatalf("upsert custom policy: %v", err)

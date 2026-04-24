@@ -19,7 +19,7 @@ Grounded in `prd.md` sections 7, 10, 11, 16, 17, 18, 20, and milestone M2.
   - Keep dashboard render target below 200ms for a large fixture database.
   - Validation: `go test ./internal/ui/...` includes dashboard snapshots and a benchmark for render time.
 
-- [ ] **Task 5.3**: Implement cache policy editing services
+- [x] **Task 5.3**: Implement cache policy editing services
   - Add create/update/delete operations for explicit policy rows.
   - Validate depth, retention, attachment rule, and attachment max combinations.
   - Recompute effective policy for labels after updates.

@@ -102,17 +102,8 @@ func defaultSyncPolicies(accountID string, updatedAt time.Time) []SyncPolicy {
 }
 
 func upsertSyncPolicy(ctx context.Context, exec sqlx.ExtContext, policy SyncPolicy) error {
-	if policy.AccountID == "" {
-		return errors.New("sync policy account id is required")
-	}
-	if policy.LabelID == "" {
-		return errors.New("sync policy label id is required")
-	}
-	if policy.Depth == "" {
-		return errors.New("sync policy depth is required")
-	}
-	if policy.AttachmentRule == "" {
-		return errors.New("sync policy attachment rule is required")
+	if err := ValidateSyncPolicy(policy); err != nil {
+		return err
 	}
 	updatedAt := policy.UpdatedAt
 	if updatedAt.IsZero() {

@@ -183,6 +183,51 @@ func TestPolicyEvaluatorExclusionsNeverPersist(t *testing.T) {
 	}
 }
 
+func TestPolicyEvaluatorReflectsPolicyEditorChanges(t *testing.T) {
+	ctx := context.Background()
+	db := migratedSyncTestDB(t)
+	account := seedSyncAccount(t, db)
+	evaluator := NewPolicyEvaluator(db, config.Default())
+
+	initial, err := evaluator.EffectiveForLabel(ctx, account.ID, account.Email, "Label_1")
+	if err != nil {
+		t.Fatalf("initial effective policy: %v", err)
+	}
+	if initial.Source != PolicySourceAccountDefault || initial.Depth != config.CacheDepthMetadata {
+		t.Fatalf("initial policy = %#v, want account default metadata", initial)
+	}
+
+	retention := 14
+	if _, err := cache.NewSyncPolicyEditor(db).Save(ctx, cache.SyncPolicy{
+		AccountID:      account.ID,
+		LabelID:        "Label_1",
+		Include:        true,
+		Depth:          string(config.CacheDepthBody),
+		RetentionDays:  &retention,
+		AttachmentRule: string(config.AttachmentRuleNone),
+	}); err != nil {
+		t.Fatalf("save edited policy: %v", err)
+	}
+	edited, err := evaluator.EffectiveForLabel(ctx, account.ID, account.Email, "Label_1")
+	if err != nil {
+		t.Fatalf("edited effective policy: %v", err)
+	}
+	if edited.Source != PolicySourceDBExplicit || edited.Depth != config.CacheDepthBody || valueOrZero(edited.RetentionDays) != 14 {
+		t.Fatalf("edited policy = %#v, want explicit body/14", edited)
+	}
+
+	if _, err := cache.NewSyncPolicyEditor(db).ResetToDefault(ctx, account.ID, "Label_1"); err != nil {
+		t.Fatalf("reset edited policy: %v", err)
+	}
+	reset, err := evaluator.EffectiveForLabel(ctx, account.ID, account.Email, "Label_1")
+	if err != nil {
+		t.Fatalf("reset effective policy: %v", err)
+	}
+	if reset.Source != PolicySourceAccountDefault || reset.Depth != config.CacheDepthMetadata {
+		t.Fatalf("reset policy = %#v, want account default metadata", reset)
+	}
+}
+
 func migratedSyncTestDB(t *testing.T) *sqlx.DB {
 	t.Helper()
 
