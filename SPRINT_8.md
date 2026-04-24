@@ -61,7 +61,7 @@ Grounded in `prd.md` sections 8, 9, 13.3, 13.5, 13.7, 13.8, 14, 15, 17, 19, 20, 
   - Retry with exponential backoff when connectivity returns and mark sent or failed.
   - Validation: `go test ./internal/compose ./internal/sync ./internal/cache` covers successful send, queued send, retry success, retry failure, and outbox persistence.
 
-- [ ] **Task 8.10**: Build compose mode UI actions
+- [x] **Task 8.10**: Build compose mode UI actions
   - Wire `c`, `r`, `R`, and `f` from mailbox and reader contexts.
   - Add `Ctrl+D` save draft and close, `Ctrl+S` send, `Ctrl+C` discard with confirmation, and `Ctrl+T` attach.
   - Show clear send, autosave, queued, and error states.

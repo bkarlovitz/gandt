@@ -63,6 +63,7 @@ type Model struct {
 	quitting              bool
 	commandInput          string
 	search                SearchState
+	compose               ComposeModeState
 	labelPrompt           labelPromptState
 	statusMessage         string
 	fatalError            string
@@ -645,7 +646,7 @@ func (m Model) View() string {
 	case ModeSearch:
 		b.WriteString("Search mode\n\nPress Esc to return.")
 	case ModeCompose:
-		b.WriteString("Compose mode\n\nPress Esc to return.")
+		b.WriteString(m.renderComposeMode())
 	case ModeCommand:
 		b.WriteString("Command mode\n\n")
 		b.WriteString(m.commandInput)
@@ -665,7 +666,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
 	m.syncHadInput = true
 
-	if key == "ctrl+c" {
+	if key == "ctrl+c" && m.mode != ModeCompose {
 		m.stopSync()
 		m.quitting = true
 		return m, tea.Quit
@@ -714,6 +715,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case ModeSearch, ModeCompose, ModeCommand, ModeLabelPrompt:
 		if m.mode == ModeSearch {
 			return m.handleSearchKey(msg)
+		}
+		if m.mode == ModeCompose {
+			return m.handleComposeKey(msg)
 		}
 		if m.mode == ModeCommand {
 			return m.handleCommandKey(msg)
@@ -777,8 +781,20 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.nextPane()
 	case "/":
 		m.enterSearchMode()
-	case "c", "f":
-		m.mode = ModeCompose
+	case "c":
+		m.startComposeMode(composeKindNew())
+	case "r":
+		if m.manualRefresher != nil {
+			return m.startRefresh(RefreshDelta)
+		}
+		m.startComposeMode(composeKindReply())
+	case "R":
+		if m.manualRefresher != nil {
+			return m.startRefresh(RefreshRelistLabel)
+		}
+		m.startComposeMode(composeKindReplyAll())
+	case "f":
+		m.startComposeMode(composeKindForward())
 	case "e":
 		return m.startSelectedTriageAction(TriageArchive)
 	case "#":
@@ -797,10 +813,6 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.startLabelPrompt(TriageLabelAdd)
 	case "-":
 		return m.startLabelPrompt(TriageLabelRemove)
-	case "r":
-		return m.startRefresh(RefreshDelta)
-	case "R":
-		return m.startRefresh(RefreshRelistLabel)
 	case "ctrl+a":
 		m.mode = ModeAccountSwitcher
 	case ":":
