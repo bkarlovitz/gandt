@@ -73,7 +73,7 @@ Grounded in `prd.md` sections 8, 9, 13.3, 13.5, 13.7, 13.8, 14, 15, 17, 19, 20, 
   - Cache fetched attachment bytes under `$XDG_DATA_HOME/gandt/attachments/<account_id>/<message_id>/<filename>`.
   - Validation: `go test ./internal/gmail ./internal/cache ./internal/ui` covers attachment fetch, safe filenames, configured path, and cached local path.
 
-- [ ] **Task 8.12**: Implement attachment open
+- [x] **Task 8.12**: Implement attachment open
   - Open downloaded attachments with `open`, `xdg-open`, or `start` depending on platform.
   - Fetch lazily first if the bytes are not already cached.
   - Show an error when the platform opener is unavailable.
