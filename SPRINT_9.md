@@ -37,7 +37,7 @@ Grounded in `prd.md` sections 5, 12, 13.10, 14, 15, 16, 17, 18, 19, 20, 21 M6, 2
   - Record results in release notes or a performance doc.
   - Validation: benchmark output meets or explicitly documents deviations from PRD section 18 targets.
 
-- [ ] **Task 9.6**: Add release packaging
+- [x] **Task 9.6**: Add release packaging
   - Configure GoReleaser for static binaries with version injection.
   - Add Homebrew tap metadata placeholders.
   - Verify artifacts for Linux, macOS, and Windows best-effort builds.

@@ -1,0 +1,61 @@
+version: 2
+
+project_name: gandt
+
+before:
+  hooks:
+    - go mod download
+
+builds:
+  - id: gandt
+    main: ./cmd/gandt
+    binary: gandt
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+
+archives:
+  - id: gandt
+    ids:
+      - gandt
+    formats:
+      - tar.gz
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+
+checksum:
+  name_template: checksums.txt
+
+snapshot:
+  version_template: '{{ incpatch .Version }}-next'
+
+changelog:
+  disable: false
+  sort: asc
+
+brews:
+  - name: gandt
+    repository:
+      owner: bkarlovitz
+      name: homebrew-gandt
+      branch: main
+    directory: Formula
+    homepage: https://github.com/bkarlovitz/gandt
+    description: Terminal-native Gmail client for keyboard-driven inbox triage
+    license: MIT
+    test: |
+      system "#{bin}/gandt", "--version"
