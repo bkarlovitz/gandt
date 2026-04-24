@@ -157,6 +157,9 @@ func Load(paths Paths) (Config, error) {
 }
 
 func (cfg Config) Validate() error {
+	if !validTheme(cfg.UI.Theme) {
+		return fmt.Errorf("invalid ui.theme %q", cfg.UI.Theme)
+	}
 	if !validComposeEditor(cfg.UI.ComposeEditor) {
 		return fmt.Errorf("invalid ui.compose_editor %q", cfg.UI.ComposeEditor)
 	}
@@ -183,6 +186,15 @@ func (cfg Config) Validate() error {
 	}
 
 	return nil
+}
+
+func validTheme(value Theme) bool {
+	switch value {
+	case ThemeDark, ThemeLight, ThemeAuto:
+		return true
+	default:
+		return false
+	}
 }
 
 func validComposeEditor(value ComposeEditor) bool {

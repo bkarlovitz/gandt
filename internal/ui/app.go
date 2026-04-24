@@ -321,7 +321,7 @@ func New(cfg config.Config, opts ...Option) Model {
 	model := Model{
 		config:         cfg,
 		keys:           DefaultKeyMap(),
-		styles:         NewStyles(os.Getenv("NO_COLOR") != ""),
+		styles:         NewStyles(cfg.UI.Theme, os.Getenv("NO_COLOR") != ""),
 		mailbox:        fakeMailbox(),
 		mode:           ModeNormal,
 		search:         SearchState{Mode: SearchModeOnline},

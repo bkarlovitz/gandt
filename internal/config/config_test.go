@@ -92,6 +92,10 @@ downloads = "~/mail-downloads"
 
 func TestLoadRejectsInvalidEnums(t *testing.T) {
 	tests := map[string]string{
+		"theme": `
+[ui]
+theme = "sepia"
+`,
 		"compose editor": `
 [ui]
 compose_editor = "terminal"

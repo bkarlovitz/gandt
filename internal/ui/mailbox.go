@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/bkarlovitz/gandt/internal/render"
+	"github.com/charmbracelet/lipgloss"
 )
 
 type Mailbox struct {
@@ -218,10 +219,10 @@ func (m Model) renderMailbox() string {
 	if m.mode == ModeSearch {
 		header = m.searchHeader()
 	}
-	if m.statusMessage != "" {
-		header = fmt.Sprintf("%s | %s", header, m.statusMessage)
-	}
 	styles := m.activeStyles()
+	if m.statusMessage != "" {
+		header = fmt.Sprintf("%s | %s", header, styles.Status(m.statusMessage))
+	}
 	separator := strings.Repeat("-", width)
 	if !styles.NoColor {
 		separator = styles.Accent.Render(separator)
@@ -234,7 +235,7 @@ func (m Model) renderMailbox() string {
 		separator,
 	}
 	if m.toastMessage != "" {
-		lines = append(lines, fit(m.toastMessage, width), separator)
+		lines = append(lines, fit(styles.Status(m.toastMessage), width), separator)
 	}
 	lines = append(lines, fit(m.keys.Footer(), width))
 	return trimRightLines(strings.Join(lines, "\n"))
@@ -245,7 +246,14 @@ func (m Model) renderAccountSwitcher() string {
 	if width <= 0 {
 		width = 80
 	}
-	lines := []string{"G&T | account switcher", strings.Repeat("-", width)}
+	styles := m.activeStyles()
+	header := "G&T | account switcher"
+	separator := strings.Repeat("-", width)
+	if !styles.NoColor {
+		header = styles.Header.Render(header)
+		separator = styles.Accent.Render(separator)
+	}
+	lines := []string{header, separator}
 	if len(m.accounts) == 0 {
 		lines = append(lines, fit("No accounts", width))
 	} else {
@@ -270,10 +278,10 @@ func (m Model) renderAccountSwitcher() string {
 			if account.DisplayName != "" && account.DisplayName != account.Account {
 				line += "  " + account.Account
 			}
-			lines = append(lines, fit(line, width))
+			lines = append(lines, m.renderSelectableLine(line, width, i == m.activeAccount))
 		}
 	}
-	lines = append(lines, strings.Repeat("-", width), fit("Enter switches selected account   1-9 jumps   Esc closes", width))
+	lines = append(lines, separator, fit("Enter switches selected account   1-9 jumps   Esc closes", width))
 	return trimRightLines(strings.Join(lines, "\n"))
 }
 
@@ -323,10 +331,10 @@ func (m Model) renderLabels(width, maxRows int) []string {
 			count = fmt.Sprintf("%d", label.Unread)
 		}
 		if label.CacheDepth == "" {
-			lines = append(lines, fit(fmt.Sprintf("%s%-13s %4s", prefix, label.Name, count), width))
+			lines = append(lines, m.renderLabelLine(fmt.Sprintf("%s%-13s %4s", prefix, label.Name, count), width, i == m.selectedLabel, label.Unread > 0))
 			continue
 		}
-		lines = append(lines, fit(fmt.Sprintf("%s%s %-11s %4s", prefix, depthIndicator(label.CacheDepth), label.Name, count), width))
+		lines = append(lines, m.renderLabelLine(fmt.Sprintf("%s%s %-11s %4s", prefix, depthIndicator(label.CacheDepth), label.Name, count), width, i == m.selectedLabel, label.Unread > 0))
 	}
 
 	return limitLines(lines, maxRows, width)
@@ -363,12 +371,13 @@ func (m Model) renderMessageList(width, maxRows int) []string {
 			unread = "*"
 		}
 		lines = append(lines,
-			m.renderSelectableLine(
+			m.renderMessageLine(
 				fmt.Sprintf("%s%-12s %5s %s%s %s%s", prefix, message.From, message.Date, message.Subject, thread, unread, attachment),
 				width,
 				i == m.selectedMessage,
+				message,
 			),
-			fit("  "+messageListDetail(message), width),
+			m.renderMessageDetail(message, width),
 		)
 	}
 
@@ -441,12 +450,13 @@ func (m Model) renderSearchMessageList(width, maxRows int) []string {
 				unread = "*"
 			}
 			lines = append(lines,
-				m.renderSelectableLine(
+				m.renderMessageLine(
 					fmt.Sprintf("%s%-12s %5s %s%s %s%s", prefix, message.From, message.Date, message.Subject, thread, unread, attachment),
 					width,
 					i == m.selectedMessage,
+					message,
 				),
-				fit("  "+messageListDetail(message), width),
+				m.renderMessageDetail(message, width),
 			)
 		}
 	}
@@ -591,6 +601,54 @@ func (m Model) renderSelectableLine(text string, width int, selected bool) strin
 	return line
 }
 
+func (m Model) renderLabelLine(text string, width int, selected bool, unread bool) string {
+	line := fit(text, width)
+	styles := m.activeStyles()
+	if styles.NoColor {
+		return line
+	}
+	if selected {
+		return styles.Selected.Width(width).Render(line)
+	}
+	if unread {
+		return styles.Unread.Render(line)
+	}
+	return line
+}
+
+func (m Model) renderMessageLine(text string, width int, selected bool, message Message) string {
+	line := fit(text, width)
+	styles := m.activeStyles()
+	if styles.NoColor {
+		return line
+	}
+	if selected {
+		return styles.Selected.Width(width).Render(line)
+	}
+	if message.Muted {
+		return styles.Muted.Render(line)
+	}
+	if message.Unread {
+		return styles.Unread.Render(line)
+	}
+	return styles.Read.Render(line)
+}
+
+func (m Model) renderMessageDetail(message Message, width int) string {
+	line := fit("  "+messageListDetail(message), width)
+	styles := m.activeStyles()
+	if styles.NoColor {
+		return line
+	}
+	if message.Muted {
+		return styles.Muted.Render(line)
+	}
+	if !message.Unread {
+		return styles.Read.Render(line)
+	}
+	return line
+}
+
 func joinColumns(columns [][]string, widths []int) string {
 	height := 0
 	for _, column := range columns {
@@ -631,6 +689,14 @@ func limitLines(lines []string, maxRows, width int) []string {
 func fit(value string, width int) string {
 	if width <= 0 {
 		return ""
+	}
+	visibleWidth := lipgloss.Width(value)
+	if visibleWidth > width && strings.Contains(value, "\x1b[") {
+		value = lipgloss.NewStyle().MaxWidth(width).Render(value)
+		visibleWidth = lipgloss.Width(value)
+	}
+	if visibleWidth <= width && strings.Contains(value, "\x1b[") {
+		return value + strings.Repeat(" ", width-visibleWidth)
 	}
 	runes := []rune(value)
 	if len(runes) > width {

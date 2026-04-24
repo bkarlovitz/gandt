@@ -13,7 +13,7 @@ Grounded in `prd.md` sections 5, 12, 13.10, 14, 15, 16, 17, 18, 19, 20, 21 M6, 2
   - Add `B` open-in-browser behavior for messages that need the Gmail web UI.
   - Validation: `go test ./internal/render ./internal/ui` golden tests cover newsletters, tables, links, images, raw HTML, Glamour, and browser-open fallback.
 
-- [ ] **Task 9.2**: Refine themes and visual states
+- [x] **Task 9.2**: Refine themes and visual states
   - Finalize dark, light, and auto themes with semantic roles.
   - Apply unread bolding, read dimming, selected row accent, account color, warning, error, success, and muted states consistently.
   - Respect `NO_COLOR` in every view.
