@@ -55,7 +55,7 @@ Grounded in `prd.md` sections 7, 10, 11, 16, 17, 18, 20, and milestone M2.
   - Do not remove account registry or keyring tokens in cache purge flows.
   - Validation: `go test ./internal/cache/...` covers purge plan filters and dry-run non-mutation.
 
-- [ ] **Task 5.9**: Implement confirmed purge, attachment cleanup, and compact
+- [x] **Task 5.9**: Implement confirmed purge, attachment cleanup, and compact
   - Delete selected message rows, child rows, and on-disk attachments.
   - Run WAL checkpoint after prune and expose `:cache-compact` for `VACUUM`.
   - Keep deletion failures recoverable and logged.

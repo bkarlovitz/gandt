@@ -3,6 +3,7 @@ package cache
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -28,6 +29,14 @@ type CachePurgePlan struct {
 	AttachmentCount int
 	EstimatedBytes  int64
 	MessageKeys     []MessageKey
+}
+
+type CachePurgeResult struct {
+	Plan                   CachePurgePlan
+	DeletedMessages        int
+	DeletedAttachmentFiles int
+	AttachmentDeleteErrors []string
+	Checkpointed           bool
 }
 
 type purgeCandidate struct {
@@ -70,6 +79,75 @@ func (s CachePurgeService) Plan(ctx context.Context, filter CachePurgeFilter, no
 	return plan, nil
 }
 
+func (s CachePurgeService) Execute(ctx context.Context, filter CachePurgeFilter, now time.Time) (CachePurgeResult, error) {
+	plan, err := s.Plan(ctx, filter, now)
+	if err != nil {
+		return CachePurgeResult{}, err
+	}
+	result := CachePurgeResult{Plan: plan}
+	if len(plan.MessageKeys) == 0 {
+		return result, nil
+	}
+
+	paths, err := s.attachmentPaths(ctx, plan.MessageKeys)
+	if err != nil {
+		return CachePurgeResult{}, err
+	}
+	for _, path := range paths {
+		if err := os.Remove(path); err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			result.AttachmentDeleteErrors = append(result.AttachmentDeleteErrors, fmt.Sprintf("%s: %v", path, err))
+			continue
+		}
+		result.DeletedAttachmentFiles++
+	}
+
+	tx, err := s.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return CachePurgeResult{}, fmt.Errorf("begin cache purge: %w", err)
+	}
+	defer tx.Rollback()
+	for accountID, ids := range keysByAccount(plan.MessageKeys) {
+		query, args, err := sqlx.In("DELETE FROM messages WHERE account_id = ? AND id IN (?)", accountID, ids)
+		if err != nil {
+			return CachePurgeResult{}, err
+		}
+		deleteResult, err := tx.ExecContext(ctx, query, args...)
+		if err != nil {
+			return CachePurgeResult{}, fmt.Errorf("delete cache purge messages: %w", err)
+		}
+		affected, err := deleteResult.RowsAffected()
+		if err != nil {
+			return CachePurgeResult{}, fmt.Errorf("read cache purge delete count: %w", err)
+		}
+		result.DeletedMessages += int(affected)
+	}
+	if err := tx.Commit(); err != nil {
+		return CachePurgeResult{}, fmt.Errorf("commit cache purge: %w", err)
+	}
+	if err := s.Checkpoint(ctx); err != nil {
+		return CachePurgeResult{}, err
+	}
+	result.Checkpointed = true
+	return result, nil
+}
+
+func (s CachePurgeService) Checkpoint(ctx context.Context) error {
+	if _, err := s.db.ExecContext(ctx, "PRAGMA wal_checkpoint(TRUNCATE)"); err != nil {
+		return fmt.Errorf("checkpoint cache WAL: %w", err)
+	}
+	return nil
+}
+
+func (s CachePurgeService) Compact(ctx context.Context) error {
+	if _, err := s.db.ExecContext(ctx, "VACUUM"); err != nil {
+		return fmt.Errorf("compact cache database: %w", err)
+	}
+	return nil
+}
+
 func (s CachePurgeService) purgeCandidates(ctx context.Context, filter CachePurgeFilter, now time.Time) ([]purgeCandidate, error) {
 	query := `
 SELECT m.account_id AS account_id,
@@ -104,11 +182,7 @@ WHERE 1 = 1
 }
 
 func (s CachePurgeService) populatePurgePlanCounts(ctx context.Context, plan *CachePurgePlan) error {
-	byAccount := map[string][]string{}
-	for _, key := range plan.MessageKeys {
-		byAccount[key.AccountID] = append(byAccount[key.AccountID], key.MessageID)
-	}
-	for accountID, ids := range byAccount {
+	for accountID, ids := range keysByAccount(plan.MessageKeys) {
 		var messageStats struct {
 			MessageCount   int   `db:"message_count"`
 			BodyCount      int   `db:"body_count"`
@@ -151,4 +225,32 @@ WHERE account_id = ? AND message_id IN (?)
 		plan.EstimatedBytes += attachmentStats.AttachmentBytes
 	}
 	return nil
+}
+
+func (s CachePurgeService) attachmentPaths(ctx context.Context, keys []MessageKey) ([]string, error) {
+	paths := []string{}
+	for accountID, ids := range keysByAccount(keys) {
+		query, args, err := sqlx.In(`
+SELECT local_path
+FROM attachments
+WHERE account_id = ? AND message_id IN (?) AND local_path IS NOT NULL AND local_path != ''
+`, accountID, ids)
+		if err != nil {
+			return nil, err
+		}
+		var accountPaths []string
+		if err := s.db.SelectContext(ctx, &accountPaths, query, args...); err != nil {
+			return nil, fmt.Errorf("list cache purge attachment paths: %w", err)
+		}
+		paths = append(paths, accountPaths...)
+	}
+	return paths, nil
+}
+
+func keysByAccount(keys []MessageKey) map[string][]string {
+	byAccount := map[string][]string{}
+	for _, key := range keys {
+		byAccount[key.AccountID] = append(byAccount[key.AccountID], key.MessageID)
+	}
+	return byAccount
 }

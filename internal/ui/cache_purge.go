@@ -22,14 +22,35 @@ type CachePurgePreview struct {
 	EstimatedBytes  int64
 }
 
-type CachePurgeStore interface {
-	PlanCachePurge(CachePurgeRequest) (CachePurgePreview, error)
+type CachePurgeResult struct {
+	Preview                CachePurgePreview
+	DeletedMessages        int
+	DeletedAttachmentFiles int
+	AttachmentDeleteErrors []string
 }
 
-type CachePurgeStoreFunc func(CachePurgeRequest) (CachePurgePreview, error)
+type CachePurgeStore interface {
+	PlanCachePurge(CachePurgeRequest) (CachePurgePreview, error)
+	ExecuteCachePurge(CachePurgeRequest) (CachePurgeResult, error)
+	CompactCache() error
+}
+
+type CachePurgeStoreFunc struct {
+	PlanFn    func(CachePurgeRequest) (CachePurgePreview, error)
+	ExecuteFn func(CachePurgeRequest) (CachePurgeResult, error)
+	CompactFn func() error
+}
 
 func (fn CachePurgeStoreFunc) PlanCachePurge(request CachePurgeRequest) (CachePurgePreview, error) {
-	return fn(request)
+	return fn.PlanFn(request)
+}
+
+func (fn CachePurgeStoreFunc) ExecuteCachePurge(request CachePurgeRequest) (CachePurgeResult, error) {
+	return fn.ExecuteFn(request)
+}
+
+func (fn CachePurgeStoreFunc) CompactCache() error {
+	return fn.CompactFn()
 }
 
 func parseCachePurgeRequest(fields []string) (CachePurgeRequest, error) {
@@ -87,11 +108,15 @@ func cachePurgePreviewSummary(preview CachePurgePreview) string {
 	if preview.Request.DryRun {
 		prefix = "cache purge dry run"
 	}
-	return fmt.Sprintf("%s: %d messages, %d bodies, %d attachments, %s",
+	summary := fmt.Sprintf("%s: %d messages, %d bodies, %d attachments, %s",
 		prefix,
 		preview.MessageCount,
 		preview.BodyCount,
 		preview.AttachmentCount,
 		formatBytes(preview.EstimatedBytes),
 	)
+	if !preview.Request.DryRun {
+		summary += "; y confirm / n cancel"
+	}
+	return summary
 }

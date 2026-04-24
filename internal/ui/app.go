@@ -79,6 +79,7 @@ type Model struct {
 	loadingCacheExclusion bool
 	cachePurgeStore       CachePurgeStore
 	loadingCachePurge     bool
+	pendingCachePurge     *CachePurgePreview
 	nextActionID          int
 	pendingActions        map[int]triageSnapshot
 	undo                  *undoState
@@ -379,7 +380,33 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.toastMessage = m.statusMessage
 			return m, nil
 		}
+		if msg.Preview.Request.DryRun {
+			m.pendingCachePurge = nil
+		} else {
+			m.pendingCachePurge = &msg.Preview
+		}
 		m.statusMessage = cachePurgePreviewSummary(msg.Preview)
+		m.toastMessage = m.statusMessage
+	case cachePurgeExecuteDoneMsg:
+		m.loadingCachePurge = false
+		m.pendingCachePurge = nil
+		if msg.Err != nil {
+			m.statusMessage = "cache purge failed: " + msg.Err.Error()
+			m.toastMessage = m.statusMessage
+			return m, nil
+		}
+		m.statusMessage = fmt.Sprintf("cache purge complete: deleted %d messages, %d attachment files", msg.Result.DeletedMessages, msg.Result.DeletedAttachmentFiles)
+		if len(msg.Result.AttachmentDeleteErrors) > 0 {
+			m.statusMessage += fmt.Sprintf("; %d attachment cleanup errors", len(msg.Result.AttachmentDeleteErrors))
+		}
+		m.toastMessage = m.statusMessage
+	case cacheCompactDoneMsg:
+		if msg.Err != nil {
+			m.statusMessage = "cache compact failed: " + msg.Err.Error()
+			m.toastMessage = m.statusMessage
+			return m, nil
+		}
+		m.statusMessage = "cache compact complete"
 		m.toastMessage = m.statusMessage
 	case SyncUpdateMsg:
 		if msg.Stopped {
@@ -450,6 +477,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	if m.mode == ModeNormal && m.pendingCacheExclusion != nil {
 		return m.handleCacheExclusionConfirmation(key)
+	}
+	if m.mode == ModeNormal && m.pendingCachePurge != nil {
+		return m.handleCachePurgeConfirmation(key)
 	}
 
 	switch m.mode {
@@ -705,6 +735,26 @@ func (m Model) handleCacheExclusionConfirmation(key string) (tea.Model, tea.Cmd)
 	}
 }
 
+func (m Model) handleCachePurgeConfirmation(key string) (tea.Model, tea.Cmd) {
+	switch key {
+	case "y", "Y":
+		request := m.pendingCachePurge.Request
+		m.loadingCachePurge = true
+		m.statusMessage = "running cache purge..."
+		m.toastMessage = m.statusMessage
+		return m, m.runCachePurgeExecute(request)
+	case "n", "N", "esc":
+		m.pendingCachePurge = nil
+		m.statusMessage = "cache purge canceled"
+		m.toastMessage = m.statusMessage
+		return m, nil
+	default:
+		m.statusMessage = "confirm cache purge with y or n"
+		m.toastMessage = m.statusMessage
+		return m, nil
+	}
+}
+
 func (m Model) submitCommand() (tea.Model, tea.Cmd) {
 	command := strings.TrimSpace(strings.TrimPrefix(m.commandInput, ":"))
 	m.mode = ModeNormal
@@ -776,6 +826,8 @@ func (m Model) submitCommand() (tea.Model, tea.Cmd) {
 		return m.startCacheExclusionPreview(fields)
 	case "cache-purge":
 		return m.startCachePurgePreview(fields)
+	case "cache-compact":
+		return m.startCacheCompact()
 	case "quit", "q":
 		m.stopSync()
 		m.quitting = true
@@ -843,9 +895,21 @@ func (m Model) startCachePurgePreview(fields []string) (tea.Model, tea.Cmd) {
 		request.Account = m.mailbox.Account
 	}
 	m.loadingCachePurge = true
+	m.pendingCachePurge = nil
 	m.statusMessage = "planning cache purge..."
 	m.toastMessage = m.statusMessage
 	return m, m.runCachePurgePreview(request)
+}
+
+func (m Model) startCacheCompact() (tea.Model, tea.Cmd) {
+	if m.cachePurgeStore == nil {
+		m.statusMessage = "cache compact unavailable"
+		m.toastMessage = m.statusMessage
+		return m, nil
+	}
+	m.statusMessage = "compacting cache..."
+	m.toastMessage = m.statusMessage
+	return m, m.runCacheCompact()
 }
 
 func cacheExclusionPreviewSummary(preview CacheExclusionPreview) string {
@@ -1038,6 +1102,19 @@ func (m Model) runCachePurgePreview(request CachePurgeRequest) tea.Cmd {
 	return func() tea.Msg {
 		preview, err := m.cachePurgeStore.PlanCachePurge(request)
 		return cachePurgePreviewDoneMsg{Preview: preview, Err: err}
+	}
+}
+
+func (m Model) runCachePurgeExecute(request CachePurgeRequest) tea.Cmd {
+	return func() tea.Msg {
+		result, err := m.cachePurgeStore.ExecuteCachePurge(request)
+		return cachePurgeExecuteDoneMsg{Result: result, Err: err}
+	}
+}
+
+func (m Model) runCacheCompact() tea.Cmd {
+	return func() tea.Msg {
+		return cacheCompactDoneMsg{Err: m.cachePurgeStore.CompactCache()}
 	}
 }
 

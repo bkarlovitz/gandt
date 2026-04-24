@@ -489,40 +489,83 @@ func uiCacheExclusionPreview(request ui.CacheExclusionRequest, plan cache.CacheE
 }
 
 func buildCachePurgeStore(paths config.Paths) ui.CachePurgeStore {
-	return ui.CachePurgeStoreFunc(func(request ui.CachePurgeRequest) (ui.CachePurgePreview, error) {
-		ctx := context.Background()
-		db, err := cache.Open(ctx, paths)
-		if err != nil {
-			return ui.CachePurgePreview{}, err
-		}
-		defer db.Close()
-		if err := cache.Migrate(ctx, db); err != nil {
-			return ui.CachePurgePreview{}, err
-		}
-		accountID := ""
-		if request.Account != "" {
-			if account, err := cacheExclusionAccount(ctx, db, request.Account); err == nil {
-				accountID = account.ID
+	return ui.CachePurgeStoreFunc{
+		PlanFn: func(request ui.CachePurgeRequest) (ui.CachePurgePreview, error) {
+			ctx := context.Background()
+			db, err := cache.Open(ctx, paths)
+			if err != nil {
+				return ui.CachePurgePreview{}, err
 			}
+			defer db.Close()
+			if err := cache.Migrate(ctx, db); err != nil {
+				return ui.CachePurgePreview{}, err
+			}
+			plan, err := cache.NewCachePurgeService(db).Plan(ctx, cachePurgeFilter(ctx, db, request), time.Now().UTC())
+			if err != nil {
+				return ui.CachePurgePreview{}, err
+			}
+			return uiCachePurgePreview(request, plan), nil
+		},
+		ExecuteFn: func(request ui.CachePurgeRequest) (ui.CachePurgeResult, error) {
+			ctx := context.Background()
+			db, err := cache.Open(ctx, paths)
+			if err != nil {
+				return ui.CachePurgeResult{}, err
+			}
+			defer db.Close()
+			if err := cache.Migrate(ctx, db); err != nil {
+				return ui.CachePurgeResult{}, err
+			}
+			result, err := cache.NewCachePurgeService(db).Execute(ctx, cachePurgeFilter(ctx, db, request), time.Now().UTC())
+			if err != nil {
+				return ui.CachePurgeResult{}, err
+			}
+			return ui.CachePurgeResult{
+				Preview:                uiCachePurgePreview(request, result.Plan),
+				DeletedMessages:        result.DeletedMessages,
+				DeletedAttachmentFiles: result.DeletedAttachmentFiles,
+				AttachmentDeleteErrors: result.AttachmentDeleteErrors,
+			}, nil
+		},
+		CompactFn: func() error {
+			ctx := context.Background()
+			db, err := cache.Open(ctx, paths)
+			if err != nil {
+				return err
+			}
+			defer db.Close()
+			if err := cache.Migrate(ctx, db); err != nil {
+				return err
+			}
+			return cache.NewCachePurgeService(db).Compact(ctx)
+		},
+	}
+}
+
+func cachePurgeFilter(ctx context.Context, db *sqlx.DB, request ui.CachePurgeRequest) cache.CachePurgeFilter {
+	accountID := ""
+	if request.Account != "" {
+		if account, err := cacheExclusionAccount(ctx, db, request.Account); err == nil {
+			accountID = account.ID
 		}
-		plan, err := cache.NewCachePurgeService(db).Plan(ctx, cache.CachePurgeFilter{
-			AccountID:     accountID,
-			LabelID:       request.LabelID,
-			OlderThanDays: request.OlderThanDays,
-			From:          request.From,
-			DryRun:        request.DryRun,
-		}, time.Now().UTC())
-		if err != nil {
-			return ui.CachePurgePreview{}, err
-		}
-		return ui.CachePurgePreview{
-			Request:         request,
-			MessageCount:    plan.MessageCount,
-			BodyCount:       plan.BodyCount,
-			AttachmentCount: plan.AttachmentCount,
-			EstimatedBytes:  plan.EstimatedBytes,
-		}, nil
-	})
+	}
+	return cache.CachePurgeFilter{
+		AccountID:     accountID,
+		LabelID:       request.LabelID,
+		OlderThanDays: request.OlderThanDays,
+		From:          request.From,
+		DryRun:        request.DryRun,
+	}
+}
+
+func uiCachePurgePreview(request ui.CachePurgeRequest, plan cache.CachePurgePlan) ui.CachePurgePreview {
+	return ui.CachePurgePreview{
+		Request:         request,
+		MessageCount:    plan.MessageCount,
+		BodyCount:       plan.BodyCount,
+		AttachmentCount: plan.AttachmentCount,
+		EstimatedBytes:  plan.EstimatedBytes,
+	}
 }
 
 func runOneAccountRefresh(ctx context.Context, paths config.Paths, cfg config.Config, request ui.RefreshRequest) (gandtsync.AccountSyncResult, error) {

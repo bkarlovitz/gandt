@@ -2,6 +2,9 @@ package cache
 
 import (
 	"context"
+	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -59,6 +62,38 @@ func TestCachePurgePlanSupportsLabelAndAccountScopes(t *testing.T) {
 	}
 	if allAccounts.MessageCount != 2 {
 		t.Fatalf("all-account plan = %#v, want old inbox messages from both accounts", allAccounts)
+	}
+}
+
+func TestCachePurgeExecuteDeletesRowsAttachmentsAndCheckpoints(t *testing.T) {
+	ctx := context.Background()
+	db := migratedTestDB(t)
+	now := time.Date(2026, 4, 24, 12, 0, 0, 0, time.UTC)
+	accountID := seedPurgeRows(t, db, now)
+	var attachmentPath string
+	if err := db.GetContext(ctx, &attachmentPath, "SELECT local_path FROM attachments WHERE account_id = ? AND message_id = ?", accountID, "old-inbox-ada"); err != nil {
+		t.Fatalf("read attachment path: %v", err)
+	}
+
+	result, err := NewCachePurgeService(db).Execute(ctx, CachePurgeFilter{AccountID: accountID, LabelID: "INBOX", OlderThanDays: 30}, now)
+	if err != nil {
+		t.Fatalf("execute purge: %v", err)
+	}
+	if result.DeletedMessages != 1 || result.DeletedAttachmentFiles != 1 || !result.Checkpointed || len(result.AttachmentDeleteErrors) != 0 {
+		t.Fatalf("purge result = %#v, want one message, one attachment file, checkpoint", result)
+	}
+	if _, err := NewMessageRepository(db).Get(ctx, accountID, "old-inbox-ada"); err == nil {
+		t.Fatalf("purged message still exists")
+	} else if !errors.Is(err, ErrMessageNotFound) {
+		t.Fatalf("purged message error = %v, want ErrMessageNotFound", err)
+	}
+	assertRowCount(t, db, "attachments", accountID, 0)
+	if _, err := os.Stat(attachmentPath); !os.IsNotExist(err) {
+		t.Fatalf("attachment path stat error = %v, want removed file", err)
+	}
+
+	if err := NewCachePurgeService(db).Compact(ctx); err != nil {
+		t.Fatalf("compact cache: %v", err)
 	}
 }
 
@@ -126,7 +161,11 @@ func seedPurgeRows(t *testing.T, db *sqlx.DB, now time.Time) string {
 			t.Fatalf("upsert label mapping %s: %v", fixture.id, err)
 		}
 	}
-	if err := NewAttachmentRepository(db).Upsert(ctx, Attachment{AccountID: first.ID, MessageID: "old-inbox-ada", PartID: "1", Filename: "one.pdf", SizeBytes: 50}); err != nil {
+	attachmentPath := filepath.Join(t.TempDir(), "one.pdf")
+	if err := os.WriteFile(attachmentPath, []byte("attachment"), 0o600); err != nil {
+		t.Fatalf("write attachment: %v", err)
+	}
+	if err := NewAttachmentRepository(db).Upsert(ctx, Attachment{AccountID: first.ID, MessageID: "old-inbox-ada", PartID: "1", Filename: "one.pdf", SizeBytes: 50, LocalPath: attachmentPath}); err != nil {
 		t.Fatalf("upsert attachment: %v", err)
 	}
 	return first.ID

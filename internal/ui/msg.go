@@ -74,3 +74,12 @@ type cachePurgePreviewDoneMsg struct {
 	Preview CachePurgePreview
 	Err     error
 }
+
+type cachePurgeExecuteDoneMsg struct {
+	Result CachePurgeResult
+	Err    error
+}
+
+type cacheCompactDoneMsg struct {
+	Err error
+}
