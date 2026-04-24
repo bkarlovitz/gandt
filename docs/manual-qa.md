@@ -56,7 +56,7 @@ Do not use personal or production mailboxes for destructive actions such as spam
 
 ## 2. Launch Without Accounts
 
-- [ ] Start the no-color smoke test:
+- [X] Start the no-color smoke test:
 
   ```sh
   NO_COLOR=1 ./bin/gandt
@@ -64,7 +64,7 @@ Do not use personal or production mailboxes for destructive actions such as spam
 
   Expected: the no-account or fake-inbox state renders without ANSI color. Press `?` to open help, `Esc` to close help, then `q` to quit.
 
-- [ ] Start the normal local build:
+- [X] Start the normal local build:
 
   ```sh
   ./bin/gandt
