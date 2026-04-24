@@ -25,7 +25,7 @@ Grounded in `prd.md` sections 5, 6, 12, 15, 16, 20, and milestone M0.
   - Ensure all commands work on macOS and Linux shells without project-specific absolute paths.
   - Validation: `make fmt test build` passes.
 
-- [ ] **Task 1.4**: Configure CI for supported platforms
+- [x] **Task 1.4**: Configure CI for supported platforms
   - Add GitHub Actions for Linux, macOS, and Windows.
   - Test at least Go 1.25 and the current stable Go version supported by the project.
   - Run formatting, tests, `go vet`, and a static binary build check.
