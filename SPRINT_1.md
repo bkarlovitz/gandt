@@ -49,7 +49,7 @@ Grounded in `prd.md` sections 5, 6, 12, 15, 16, 20, and milestone M0.
   - Include startup metadata without logging secrets or message body content.
   - Validation: `go test ./internal/config/...` covers log path creation, and manual `go run ./cmd/gandt` creates `gandt.log`.
 
-- [ ] **Task 1.8**: Create the root Bubble Tea model
+- [x] **Task 1.8**: Create the root Bubble Tea model
   - Add `internal/ui/app.go`, `msg.go`, `keys.go`, and `styles.go`.
   - Model Normal, Search, Compose, Command, and Help modes even if only Normal and Help are active in this sprint.
   - Handle terminal resize and clean quit via `q`, `Esc`, and `Ctrl+C` where appropriate.
