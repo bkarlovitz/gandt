@@ -25,7 +25,7 @@ Grounded in `prd.md` sections 7, 8, 9, 10, 11, 16, 19, 20, and milestone M1.
   - Add a note that `message_annotations` is reserved for future downstream tools and not populated by v1 core.
   - Validation: manual review confirms `docs/schema.md` matches `internal/cache/schema.sql`.
 
-- [ ] **Task 2.4**: Implement account repository operations
+- [x] **Task 2.4**: Implement account repository operations
   - Add create, get, list, update sync metadata, and delete operations for `accounts`.
   - Enforce unique email behavior and cascade deletion expectations.
   - Keep account IDs opaque UUID strings.
